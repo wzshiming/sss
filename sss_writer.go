@@ -109,11 +109,11 @@ func (s *SSS) WriterWithAppend(ctx context.Context, path string, opts ...WriterO
 		return nil, fmt.Errorf("multipart upload not found: %s", path)
 	}
 
-	parts, err := m.Parts(ctx)
+	parts, err := m.OrderParts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.newWriter(ctx, key, m.UploadID(), parts, o), nil
+	return s.newWriter(ctx, key, m.UploadID(), parts.Items(), o), nil
 }
 
 func (s *SSS) WriterWithAppendByUploadID(ctx context.Context, path, uploadID string, opts ...WriterOptions) (FileWriter, error) {
@@ -133,11 +133,11 @@ func (s *SSS) WriterWithAppendByUploadID(ctx context.Context, path, uploadID str
 		return nil, fmt.Errorf("multipart upload not found with upload id: %s, %s", path, uploadID)
 	}
 
-	parts, err := m.Parts(ctx)
+	parts, err := m.OrderParts(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.newWriter(ctx, key, uploadID, parts, o), nil
+	return s.newWriter(ctx, key, uploadID, parts.Items(), o), nil
 }
 
 type FileWriter interface {

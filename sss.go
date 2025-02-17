@@ -421,6 +421,10 @@ func (s *SSS) getBucket() *string {
 	return aws.String(s.bucket)
 }
 
+func (s *SSS) ChunkSize() int {
+	return s.chunkSize
+}
+
 func (s *SSS) S3() *s3.S3 {
 	return s.s3
 }

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
@@ -42,27 +41,24 @@ func (s *SSS) ReaderWithOffset(ctx context.Context, path string, offset int64) (
 	}
 	resp, err := s.s3.GetObjectWithContext(ctx, getObjectInput)
 	if err != nil {
-		if s3Err, ok := err.(awserr.Error); ok && s3Err.Code() == "InvalidRange" {
-			return io.NopCloser(bytes.NewReader(nil)), nil
-		}
 		return nil, parseError(path, err)
 	}
 	return resp.Body, nil
 }
 
 func (s *SSS) ReaderWithOffsetAndLimit(ctx context.Context, path string, offset, limit int64) (io.ReadCloser, error) {
+	if limit <= 0 {
+		return io.NopCloser(bytes.NewBuffer(nil)), nil
+	}
 	getObjectInput := &s3.GetObjectInput{
 		Bucket: s.getBucket(),
 		Key:    aws.String(s.s3Path(path)),
 	}
 	if offset > 0 {
-		getObjectInput.Range = aws.String("bytes=" + strconv.FormatInt(offset, 10) + "-" + strconv.FormatInt(offset+limit, 10))
+		getObjectInput.Range = aws.String("bytes=" + strconv.FormatInt(offset, 10) + "-" + strconv.FormatInt(offset+limit-1, 10))
 	}
 	resp, err := s.s3.GetObjectWithContext(ctx, getObjectInput)
 	if err != nil {
-		if s3Err, ok := err.(awserr.Error); ok && s3Err.Code() == "InvalidRange" {
-			return io.NopCloser(bytes.NewReader(nil)), nil
-		}
 		return nil, parseError(path, err)
 	}
 	return resp.Body, nil

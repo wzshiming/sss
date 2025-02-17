@@ -39,12 +39,14 @@ func NewCommand(ctx context.Context) *cobra.Command {
 			var count int
 			err = s.ListMultipart(cmd.Context(), remote, func(mp *sss.Multipart) bool {
 				if flags.Wide {
-					size, _ := mp.Size(cmd.Context())
-					count, _ := mp.Count(cmd.Context())
-					modTime, _ := mp.LastModified(cmd.Context())
-					fmt.Println(mp.Path(), size, count, modTime.Format(time.RFC3339), mp.UploadID())
+					p, err := mp.OrderParts(cmd.Context())
+					if err == nil {
+						fmt.Println(mp.Key(), p.Size(), p.Count(), p.LastModified().Format(time.RFC3339), mp.UploadID())
+					} else {
+						fmt.Println(mp.Key(), err)
+					}
 				} else {
-					fmt.Println(mp.Path())
+					fmt.Println(mp.Key())
 				}
 				count++
 				return flags.Limit < 0 || count < flags.Limit

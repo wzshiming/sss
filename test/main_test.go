@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	_, err = s.S3().HeadBucket(&s3.HeadBucketInput{
 		Bucket: aws.String(bucket),

@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -275,6 +276,88 @@ func TestFileWriter(t *testing.T) {
 	}
 
 	err = w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := s.Reader(t.Context(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := sha256.New()
+
+	gotSize, err := io.Copy(got, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := sha256.New()
+	_, err = wantData.Seek(0, io.SeekStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSize, err := io.Copy(want, wantData)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if wantSize != gotSize {
+		t.Fatalf("expected size %d, got %d", wantSize, gotSize)
+	}
+
+	wantHex := hex.EncodeToString(want.Sum(nil))
+	gotHex := hex.EncodeToString(got.Sum(nil))
+
+	if wantHex != gotHex {
+		t.Fatalf("expected %s, got %s", wantHex, gotHex)
+	}
+}
+
+func TestMultipartFileWriter(t *testing.T) {
+	key := "test-multipart-object"
+	wantBuffer := bytes.NewBuffer(nil)
+	_, err := io.Copy(wantBuffer, io.LimitReader(crand.Reader, rand.Int63n(1024*1024)+(128+rand.Int63n(128))*1024*1024))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wantData := bytes.NewReader(wantBuffer.Bytes())
+
+	m, err := s.NewMultipart(t.Context(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chunkSize := s.ChunkSize()
+
+	partNumber := wantBuffer.Len() / chunkSize
+	if wantBuffer.Len()%chunkSize != 0 {
+		partNumber++
+	}
+
+	sem := make(chan struct{}, 5)
+	var wg sync.WaitGroup
+	for i := 0; i != partNumber; i++ {
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(i int) {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+			buf := make([]byte, chunkSize)
+			n, _ := wantData.ReadAt(buf, int64(chunkSize*i))
+			err := m.UploadPart(t.Context(), int64(i+1), bytes.NewReader(buf[:n]))
+			if err != nil {
+				t.Error(err)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	err = m.Commit(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
