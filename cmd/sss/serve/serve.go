@@ -2,28 +2,31 @@ package serve
 
 import (
 	"context"
-	"fmt"
-	"io"
 	"net/http"
-	"path"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/wzshiming/sss"
-	"github.com/wzshiming/sss/fs"
+	"github.com/wzshiming/sss/serve"
 )
 
 type flagpole struct {
-	URL     string
-	Address string
+	URL      string
+	Address  string
+	Redirect bool
+	Expires  time.Duration
+
+	AllowList   bool
+	AllowPut    bool
+	AllowDelete bool
 }
 
 // NewCommand returns a new cobra.Command for serve
 func NewCommand(ctx context.Context) *cobra.Command {
 	flags := &flagpole{
 		Address: ":8080",
+		Expires: 10 * time.Second,
 	}
 
 	cmd := &cobra.Command{
@@ -35,93 +38,23 @@ func NewCommand(ctx context.Context) *cobra.Command {
 				return err
 			}
 
-			// fileSystem := fs.NewFS(cmd.Context(), s, "/")
+			h := serve.NewServe(
+				serve.WithSSS(s),
+				serve.WithRedirect(flags.Redirect, flags.Expires),
+				serve.WithAllowList(flags.AllowList),
+				serve.WithAllowPut(flags.AllowPut),
+				serve.WithAllowDelete(flags.AllowDelete),
+			)
 
-			// http.Handle("/", http.FileServerFS(fileSystem))
-
-			http.Handle("/", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-				info, err := s.Stat(cmd.Context(), r.URL.Path)
-				if err != nil {
-					http.Error(rw, err.Error(), http.StatusInternalServerError)
-					return
-				}
-
-				if info.IsDir() {
-
-					rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-					if r.Method == http.MethodHead {
-						return
-					}
-
-					fmt.Fprintln(rw, `<!doctype html>`)
-					fmt.Fprintln(rw, `<meta name="viewport" content="width=device-width">`)
-					fmt.Fprintf(rw, `<pre>`)
-					if r.URL.Path != "/" && r.URL.Path != "" {
-						fmt.Fprintf(rw, `<a href="%s">..</a>
-`, path.Dir(strings.TrimSuffix(r.URL.Path, "/")))
-					}
-					err = s.List(cmd.Context(), r.URL.Path, func(fileInfo sss.FileInfo) bool {
-						if fileInfo.IsDir() {
-							fmt.Fprintf(rw, `<a href="%s/">%s/</a>
-`, fileInfo.Path(), path.Base(fileInfo.Path()))
-						} else {
-							fmt.Fprintf(rw, `<a href="%s">%s</a> %d %s
-`, fileInfo.Path(), path.Base(fileInfo.Path()), fileInfo.Size(), fileInfo.ModTime().Format(time.RFC3339))
-						}
-						return true
-					})
-					if err != nil {
-						fmt.Fprintf(rw, `<span style="color: red;">%s</span>`, err.Error())
-					}
-					fmt.Fprintf(rw, `</pre>`)
-					return
-				}
-				http.ServeContent(rw, r, r.URL.Path, info.ModTime(), fs.NewReadSeekCloser(func(start int64) (io.ReadCloser, error) {
-					return s.ReaderWithOffset(cmd.Context(), r.URL.Path, start)
-				}, info.Size()))
-			}))
-
-			http.Handle("DELETE /", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-				err := s.Delete(cmd.Context(), r.URL.Path)
-				if err != nil {
-					http.Error(rw, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				rw.WriteHeader(http.StatusOK)
-			}))
-
-			http.Handle("PUT /", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-				w, err := s.Writer(cmd.Context(), r.URL.Path)
-				if err != nil {
-					http.Error(rw, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				defer w.Close()
-				n, err := io.Copy(w, r.Body)
-				if err != nil {
-					w.Cancel(cmd.Context())
-					http.Error(rw, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				if r.ContentLength != n {
-					w.Cancel(cmd.Context())
-					http.Error(rw, "content length mismatch", http.StatusInternalServerError)
-					return
-				}
-				err = w.Commit(cmd.Context())
-				if err != nil {
-					w.Cancel(cmd.Context())
-					http.Error(rw, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				rw.WriteHeader(http.StatusCreated)
-			}))
-
-			return http.ListenAndServe(flags.Address, nil)
+			return http.ListenAndServe(flags.Address, h)
 		},
 	}
 	cmd.Flags().StringVar(&flags.URL, "url", flags.URL, "config url")
 	cmd.Flags().StringVar(&flags.Address, "address", flags.Address, "address")
-
+	cmd.Flags().BoolVar(&flags.Redirect, "redirect", flags.Redirect, "redirect")
+	cmd.Flags().DurationVar(&flags.Expires, "expires", flags.Expires, "redirect expires")
+	cmd.Flags().BoolVar(&flags.AllowList, "allow-list", flags.AllowList, "allow list")
+	cmd.Flags().BoolVar(&flags.AllowPut, "allow-put", flags.AllowPut, "allow put")
+	cmd.Flags().BoolVar(&flags.AllowDelete, "allow-delete", flags.AllowDelete, "allow delete")
 	return cmd
 }
