@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
@@ -193,13 +194,16 @@ func (m *Multipart) Cancel(ctx context.Context) error {
 }
 
 func (m *Multipart) SignUploadPart(partNumber int64, expires time.Duration) (string, error) {
-	req, _ := m.driver.s3.UploadPartRequest(&s3.UploadPartInput{
-		Bucket:     aws.String(m.driver.bucket),
-		Key:        aws.String(m.key),
-		PartNumber: &partNumber,
-		UploadId:   aws.String(m.uploadID),
-	})
-	return req.Presign(expires)
+	return m.driver.presign(expires,
+		func(c *s3.S3) *request.Request {
+			req, _ := c.UploadPartRequest(&s3.UploadPartInput{
+				Bucket:     aws.String(m.driver.bucket),
+				Key:        aws.String(m.key),
+				PartNumber: &partNumber,
+				UploadId:   aws.String(m.uploadID),
+			})
+			return req
+		})
 }
 
 func (m *Multipart) UploadPart(ctx context.Context, partNumber int64, body io.ReadSeeker) error {

@@ -6,15 +6,19 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 func (s *SSS) SignList(path string, expires time.Duration) (string, error) {
-	req, _ := s.s3.ListObjectsRequest(&s3.ListObjectsInput{
-		Bucket: s.getBucket(),
-		Prefix: aws.String(s.s3Path(path)),
-	})
-	return req.Presign(expires)
+	return s.presign(expires,
+		func(c *s3.S3) *request.Request {
+			req, _ := c.ListObjectsRequest(&s3.ListObjectsInput{
+				Bucket: s.getBucket(),
+				Prefix: aws.String(s.s3Path(path)),
+			})
+			return req
+		})
 }
 
 func (s *SSS) List(ctx context.Context, opath string, fun func(fileInfo FileInfo) bool) error {

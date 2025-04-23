@@ -7,15 +7,19 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 func (s *SSS) SignDelete(path string, expires time.Duration) (string, error) {
-	req, _ := s.s3.DeleteObjectRequest(&s3.DeleteObjectInput{
-		Bucket: s.getBucket(),
-		Key:    aws.String(s.s3Path(path)),
-	})
-	return req.Presign(expires)
+	return s.presign(expires,
+		func(c *s3.S3) *request.Request {
+			req, _ := c.DeleteObjectRequest(&s3.DeleteObjectInput{
+				Bucket: s.getBucket(),
+				Key:    aws.String(s.s3Path(path)),
+			})
+			return req
+		})
 }
 
 func (s *SSS) Delete(ctx context.Context, path string) error {

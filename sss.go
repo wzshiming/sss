@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -36,6 +37,7 @@ type sssOption struct {
 	Bucket         string
 	Region         string
 	RegionEndpoint string
+	SignEndpoint   string
 	ForcePathStyle bool
 	Encrypt        bool
 	KeyID          string
@@ -217,6 +219,8 @@ func WithURL(uri string) Option {
 			region = part[1]
 		}
 
+		signEndpoint := query.Get("signendpoint")
+
 		regionEndpoint := query.Get("regionendpoint")
 
 		forcePathStyleBool, _ := strconv.ParseBool(query.Get("forcepathstyle"))
@@ -276,6 +280,7 @@ func WithURL(uri string) Option {
 		p.SecretKey = secretKey
 		p.Bucket = bucket
 		p.Region = region
+		p.SignEndpoint = signEndpoint
 		p.RegionEndpoint = regionEndpoint
 		p.ForcePathStyle = forcePathStyleBool
 		p.Encrypt = encryptBool
@@ -296,6 +301,7 @@ func WithURL(uri string) Option {
 
 type SSS struct {
 	s3            *s3.S3
+	signS3        *s3.S3
 	Name          string
 	bucket        string
 	chunkSize     int
@@ -357,7 +363,7 @@ func NewSSS(opts ...Option) (*SSS, error) {
 		sess.Handlers.Build.PushBack(request.MakeAddToUserAgentFreeFormHandler(params.UserAgent))
 	}
 
-	return &SSS{
+	s := &SSS{
 		s3:            s3.New(sess),
 		Name:          params.DriverName,
 		bucket:        params.Bucket,
@@ -370,7 +376,23 @@ func NewSSS(opts ...Option) (*SSS, error) {
 		pool: &sync.Pool{
 			New: func() any { return &bytes.Buffer{} },
 		},
-	}, nil
+	}
+
+	if params.SignEndpoint != "" {
+		sess.Config.Endpoint = &params.SignEndpoint
+		sess.Config.S3ForcePathStyle = aws.Bool(true)
+		s.signS3 = s3.New(sess)
+	}
+	return s, nil
+}
+
+func (s *SSS) presign(expires time.Duration, fun func(s3 *s3.S3) *request.Request) (string, error) {
+	if s.signS3 == nil {
+		return fun(s.s3).Presign(expires)
+	}
+	req := fun(s.signS3)
+	req.HTTPRequest.URL.Path = strings.TrimPrefix(req.HTTPRequest.URL.Path, "/{Bucket}")
+	return req.Presign(expires)
 }
 
 func (s *SSS) s3Path(path string) string {

@@ -12,15 +12,19 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 func (s *SSS) SignPut(path string, expires time.Duration) (string, error) {
-	req, _ := s.s3.PutObjectRequest(&s3.PutObjectInput{
-		Bucket: s.getBucket(),
-		Key:    aws.String(s.s3Path(path)),
-	})
-	return req.Presign(expires)
+	return s.presign(expires,
+		func(c *s3.S3) *request.Request {
+			req, _ := c.PutObjectRequest(&s3.PutObjectInput{
+				Bucket: s.getBucket(),
+				Key:    aws.String(s.s3Path(path)),
+			})
+			return req
+		})
 }
 
 type writerOption struct {
