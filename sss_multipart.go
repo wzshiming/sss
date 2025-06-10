@@ -289,6 +289,16 @@ func (s *SSS) GetMultipart(ctx context.Context, path string) (*Multipart, error)
 	return mps[0], nil
 }
 
+func (s *SSS) GetMultipartWithUploadID(path, uploadID string) *Multipart {
+	key := s.s3Path(path)
+	mps := &Multipart{
+		driver:   s,
+		key:      key,
+		uploadID: uploadID,
+	}
+	return mps
+}
+
 func (s *SSS) GetMultipartByUploadID(ctx context.Context, path, uploadID string) (*Multipart, error) {
 	key := s.s3Path(path)
 

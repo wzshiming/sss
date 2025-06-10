@@ -128,15 +128,7 @@ func (s *SSS) WriterWithAppendByUploadID(ctx context.Context, path, uploadID str
 		opt(&o)
 	}
 
-	m, err := s.GetMultipartByUploadID(ctx, path, uploadID)
-	if err != nil {
-		return nil, err
-	}
-
-	if m.UploadID() != uploadID {
-		return nil, fmt.Errorf("multipart upload not found with upload id: %s, %s", path, uploadID)
-	}
-
+	m := s.GetMultipartWithUploadID(path, uploadID)
 	parts, err := m.OrderParts(ctx)
 	if err != nil {
 		return nil, err

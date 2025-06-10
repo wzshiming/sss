@@ -32,7 +32,7 @@ func NewCommand(ctx context.Context) *cobra.Command {
 			if flags.ID == "" {
 				mp, err = s.GetMultipart(cmd.Context(), remote)
 			} else {
-				mp, err = s.GetMultipartByUploadID(cmd.Context(), remote, flags.ID)
+				mp = s.GetMultipartWithUploadID(remote, flags.ID)
 			}
 			if err != nil {
 				return err
