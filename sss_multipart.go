@@ -18,36 +18,6 @@ type Parts struct {
 	parts        []*s3.Part
 }
 
-func (m *Parts) init() error {
-
-	var lastModified = time.Now()
-
-	var size int64
-	if len(m.parts) > 0 {
-		sort.Sort(s3parts(m.parts))
-		chunkSize := int(*m.parts[0].Size)
-		for i := 0; i < len(m.parts); i++ {
-			part := m.parts[i]
-			if *part.PartNumber != int64(i+1) {
-				m.parts = m.parts[:i]
-				break
-			}
-			if *part.Size != int64(chunkSize) {
-				m.parts = m.parts[:i]
-				break
-			}
-
-			if part.LastModified.Before(lastModified) {
-				lastModified = *part.LastModified
-			}
-			size += *part.Size
-		}
-	}
-	m.size = size
-	m.lastModified = lastModified
-	return nil
-}
-
 func (m *Parts) Items() []*s3.Part {
 	return m.parts
 }
