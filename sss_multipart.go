@@ -50,6 +50,10 @@ func (m *Multipart) UploadID() string {
 	return m.uploadID
 }
 
+func (m *Multipart) SetParts(parts []*s3.Part) {
+	m.parts = parts
+}
+
 func (m *Multipart) Resume(ctx context.Context) error {
 	parts := make([]*s3.Part, 0, 16)
 	listPartsInput := &s3.ListPartsInput{
