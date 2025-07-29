@@ -3,7 +3,7 @@ module github.com/wzshiming/sss
 go 1.24
 
 require (
-	github.com/aws/aws-sdk-go v1.55.6
+	github.com/aws/aws-sdk-go v1.55.7
 	github.com/spf13/cobra v1.8.1
 )
 
