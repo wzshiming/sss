@@ -33,8 +33,8 @@ func (s *SSS) GetContent(ctx context.Context, path string) ([]byte, error) {
 	return io.ReadAll(reader)
 }
 
-func (s *SSS) GetContentWithInfo(ctx context.Context, path string) ([]byte, FileInfo, error) {
-	reader, info, err := s.ReaderWithInfo(ctx, path)
+func (s *SSS) GetContentAndInfo(ctx context.Context, path string) ([]byte, FileInfo, error) {
+	reader, info, err := s.ReaderAndInfo(ctx, path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -52,7 +52,7 @@ func (s *SSS) Reader(ctx context.Context, path string) (io.ReadCloser, error) {
 	return s.ReaderWithOffset(ctx, path, 0)
 }
 
-func (s *SSS) ReaderWithInfo(ctx context.Context, path string) (io.ReadCloser, FileInfo, error) {
+func (s *SSS) ReaderAndInfo(ctx context.Context, path string) (io.ReadCloser, FileInfo, error) {
 	return s.ReaderWithOffsetAndInfo(ctx, path, 0)
 }
 
