@@ -36,6 +36,12 @@ func (s *SSS) StatHead(ctx context.Context, path string) (FileInfo, error) {
 		isDir:   false,
 		size:    *resp.ContentLength,
 		modTime: *resp.LastModified,
+		sys: FileInfoExpansion{
+			ContentType:  resp.ContentType,
+			AcceptRanges: resp.AcceptRanges,
+			ETag:         resp.ETag,
+			Expires:      resp.Expires,
+		},
 	}, nil
 }
 

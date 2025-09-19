@@ -28,7 +28,8 @@ func (s *SSS) SignPut(path string, expires time.Duration) (string, error) {
 }
 
 type writerOption struct {
-	SHA256 string
+	SHA256      string
+	ContentType string
 }
 
 type WriterOptions func(*writerOption)
@@ -47,6 +48,13 @@ func WithSHA256(sha256 string) WriterOptions {
 		}
 
 		log.Printf("unknown checksum sha256 %q, ignore it", sha256)
+	}
+}
+
+// WithContentType sets the content type for the object being written
+func WithContentType(contentType string) WriterOptions {
+	return func(o *writerOption) {
+		o.ContentType = contentType
 	}
 }
 
@@ -69,6 +77,10 @@ func (s *SSS) PutContent(ctx context.Context, path string, contents []byte, opts
 	if o.SHA256 != "" {
 		putObjectInput.ChecksumSHA256 = aws.String(o.SHA256)
 	}
+	if o.ContentType != "" {
+		putObjectInput.ContentType = aws.String(o.ContentType)
+	}
+
 	_, err := s.s3.PutObjectWithContext(ctx, putObjectInput)
 	return parseError(path, err)
 }
@@ -81,7 +93,7 @@ func (s *SSS) Writer(ctx context.Context, path string, opts ...WriterOptions) (F
 		opt(&o)
 	}
 
-	resp, err := s.s3.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
+	createMultipartUploadInput := &s3.CreateMultipartUploadInput{
 		Bucket:               s.getBucket(),
 		Key:                  aws.String(key),
 		ContentType:          s.getContentType(),
@@ -89,7 +101,12 @@ func (s *SSS) Writer(ctx context.Context, path string, opts ...WriterOptions) (F
 		ServerSideEncryption: s.getEncryptionMode(),
 		SSEKMSKeyId:          s.getSSEKMSKeyID(),
 		StorageClass:         s.getStorageClass(),
-	})
+	}
+	if o.ContentType != "" {
+		createMultipartUploadInput.ContentType = aws.String(o.ContentType)
+	}
+
+	resp, err := s.s3.CreateMultipartUploadWithContext(ctx, createMultipartUploadInput)
 	if err != nil {
 		return nil, err
 	}

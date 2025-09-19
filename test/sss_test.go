@@ -28,7 +28,7 @@ func TestBasic(t *testing.T) {
 		t.Fatalf("head are exist: %v", key)
 	}
 
-	err = s.PutContent(t.Context(), key, content)
+	err = s.PutContent(t.Context(), key, content, sss.WithContentType("test"))
 	if err != nil {
 		t.Fatalf("failed to put object: %v", err)
 	}
@@ -36,6 +36,11 @@ func TestBasic(t *testing.T) {
 	f, err := s.StatHead(t.Context(), key)
 	if err != nil {
 		t.Fatalf("failed to stat head after put: %v", err)
+	}
+
+	fie := f.Sys().(sss.FileInfoExpansion)
+	if *fie.ContentType != "test" {
+		t.Fatalf("expected content type 'test', got '%s'", *fie.ContentType)
 	}
 
 	if f.Size() != int64(len(content)) {

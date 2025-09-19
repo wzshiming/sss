@@ -1,6 +1,8 @@
 package sss
 
 import (
+	"io/fs"
+	"path"
 	"time"
 )
 
@@ -9,14 +11,14 @@ type FileInfo interface {
 	// Path provides the full path of the target of this file info.
 	Path() string
 
-	// Size returns current length in bytes of the file.
-	Size() int64
+	fs.FileInfo
+}
 
-	// ModTime returns the modification time for the file.
-	ModTime() time.Time
-
-	// IsDir returns true if the path is a directory.
-	IsDir() bool
+type FileInfoExpansion struct {
+	ContentType  *string
+	AcceptRanges *string
+	ETag         *string
+	Expires      *string
 }
 
 type fileInfo struct {
@@ -24,6 +26,13 @@ type fileInfo struct {
 	size    int64
 	modTime time.Time
 	isDir   bool
+
+	sys FileInfoExpansion
+}
+
+func (fi fileInfo) Name() string {
+	_, file := path.Split(fi.path)
+	return file
 }
 
 func (fi fileInfo) Path() string {
@@ -40,4 +49,15 @@ func (fi fileInfo) ModTime() time.Time {
 
 func (fi fileInfo) IsDir() bool {
 	return fi.isDir
+}
+
+func (fi fileInfo) Mode() fs.FileMode {
+	if fi.isDir {
+		return fs.ModeDir | 0755
+	}
+	return 0644
+}
+
+func (fi fileInfo) Sys() any {
+	return fi.sys
 }

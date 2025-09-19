@@ -44,14 +44,26 @@ func (s *SSS) List(ctx context.Context, opath string, fun func(fileInfo FileInfo
 		MaxKeys:   aws.Int64(listMax),
 	}, func(resp *s3.ListObjectsV2Output, lastPage bool) bool {
 		for _, key := range resp.Contents {
-			fileInfo := &fileInfo{
-				path:    strings.Replace(*key.Key, s3Path, prefix, 1),
-				isDir:   *key.Size == 0,
-				size:    *key.Size,
-				modTime: *key.LastModified,
-			}
-			if !fun(fileInfo) {
-				return false
+			if *key.Size == 0 {
+				fileInfo := &fileInfo{
+					path:    strings.Replace(*key.Key, s3Path, prefix, 1),
+					isDir:   true,
+					size:    0,
+					modTime: *key.LastModified,
+				}
+				if !fun(fileInfo) {
+					return false
+				}
+			} else {
+				fileInfo := &fileInfo{
+					path:    strings.Replace(*key.Key, s3Path, prefix, 1),
+					isDir:   false,
+					size:    *key.Size,
+					modTime: *key.LastModified,
+				}
+				if !fun(fileInfo) {
+					return false
+				}
 			}
 		}
 

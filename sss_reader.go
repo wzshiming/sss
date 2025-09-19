@@ -28,11 +28,32 @@ func (s *SSS) GetContent(ctx context.Context, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer reader.Close()
+
 	return io.ReadAll(reader)
+}
+
+func (s *SSS) GetContentWithInfo(ctx context.Context, path string) ([]byte, FileInfo, error) {
+	reader, info, err := s.ReaderWithInfo(ctx, path)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer reader.Close()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return content, info, nil
 }
 
 func (s *SSS) Reader(ctx context.Context, path string) (io.ReadCloser, error) {
 	return s.ReaderWithOffset(ctx, path, 0)
+}
+
+func (s *SSS) ReaderWithInfo(ctx context.Context, path string) (io.ReadCloser, FileInfo, error) {
+	return s.ReaderWithOffsetAndInfo(ctx, path, 0)
 }
 
 func (s *SSS) ReaderWithOffset(ctx context.Context, path string, offset int64) (io.ReadCloser, error) {
@@ -48,6 +69,35 @@ func (s *SSS) ReaderWithOffset(ctx context.Context, path string, offset int64) (
 		return nil, parseError(path, err)
 	}
 	return resp.Body, nil
+}
+
+func (s *SSS) ReaderWithOffsetAndInfo(ctx context.Context, path string, offset int64) (io.ReadCloser, FileInfo, error) {
+	getObjectInput := &s3.GetObjectInput{
+		Bucket: s.getBucket(),
+		Key:    aws.String(s.s3Path(path)),
+	}
+	if offset > 0 {
+		getObjectInput.Range = aws.String("bytes=" + strconv.FormatInt(offset, 10) + "-")
+	}
+	resp, err := s.s3.GetObjectWithContext(ctx, getObjectInput)
+	if err != nil {
+		return nil, nil, parseError(path, err)
+	}
+
+	info := &fileInfo{
+		path:    path,
+		isDir:   false,
+		size:    *resp.ContentLength,
+		modTime: *resp.LastModified,
+		sys: FileInfoExpansion{
+			ContentType:  resp.ContentType,
+			AcceptRanges: resp.AcceptRanges,
+			ETag:         resp.ETag,
+			Expires:      resp.Expires,
+		},
+	}
+
+	return resp.Body, info, nil
 }
 
 func (s *SSS) ReaderWithOffsetAndLimit(ctx context.Context, path string, offset, limit int64) (io.ReadCloser, error) {
@@ -66,4 +116,40 @@ func (s *SSS) ReaderWithOffsetAndLimit(ctx context.Context, path string, offset,
 		return nil, parseError(path, err)
 	}
 	return resp.Body, nil
+}
+
+func (s *SSS) ReaderWithOffsetAndLimitAndInfo(ctx context.Context, path string, offset, limit int64) (io.ReadCloser, FileInfo, error) {
+	if limit <= 0 {
+		return io.NopCloser(bytes.NewBuffer(nil)), &fileInfo{
+			path:  path,
+			isDir: false,
+			size:  0,
+		}, nil
+	}
+	getObjectInput := &s3.GetObjectInput{
+		Bucket: s.getBucket(),
+		Key:    aws.String(s.s3Path(path)),
+	}
+	if offset > 0 {
+		getObjectInput.Range = aws.String("bytes=" + strconv.FormatInt(offset, 10) + "-" + strconv.FormatInt(offset+limit-1, 10))
+	}
+	resp, err := s.s3.GetObjectWithContext(ctx, getObjectInput)
+	if err != nil {
+		return nil, nil, parseError(path, err)
+	}
+
+	info := &fileInfo{
+		path:    path,
+		isDir:   false,
+		size:    *resp.ContentLength,
+		modTime: *resp.LastModified,
+		sys: FileInfoExpansion{
+			ContentType:  resp.ContentType,
+			AcceptRanges: resp.AcceptRanges,
+			ETag:         resp.ETag,
+			Expires:      resp.Expires,
+		},
+	}
+
+	return resp.Body, info, nil
 }
