@@ -4,8 +4,39 @@ services:
     image: quay.io/minio/minio
     command: server /data
     ports:
-    - "9000:9000"
+    - "9001:9000"
     container_name: minio
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+  
+  # Create bucket on startup
+  minio-init:
+    image: quay.io/minio/mc
+    depends_on:
+    - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 2;
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/sss-test-bucket --ignore-existing;
+      exit 0;
+      "
+  
+  sss-serve:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile
+    command: 
+      - "serve"
+      - "--url=sss://minioadmin:minioadmin@sss-test-bucket.region?forcepathstyle=true&secure=false&regionendpoint=http://minio:9000"
+      - "--address=:8080"
+      - "--s3-compatible"
+      - "--s3-bucket=sss-test-bucket"
+    ports:
+    - "9000:8080"
+    container_name: sss-serve
+    depends_on:
+    - minio
+    - minio-init
+
