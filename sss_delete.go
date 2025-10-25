@@ -6,28 +6,28 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 func (s *SSS) SignDelete(path string, expires time.Duration) (string, error) {
 	return s.presign(expires,
-		func(c *s3.S3) *request.Request {
-			req, _ := c.DeleteObjectRequest(&s3.DeleteObjectInput{
+		func(presignClient *s3.PresignClient) (*v4.PresignedHTTPRequest, error) {
+			return presignClient.PresignDeleteObject(context.Background(), &s3.DeleteObjectInput{
 				Bucket: s.getBucket(),
 				Key:    aws.String(s.s3Path(path)),
-			})
-			return req
+			}, s3.WithPresignExpires(expires))
 		})
 }
 
 func (s *SSS) Delete(ctx context.Context, path string) error {
 	s3Path := s.s3Path(path)
-	_, err := s.s3.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
+	_, err := s.s3.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 		Bucket: s.getBucket(),
-		Delete: &s3.Delete{
-			Objects: []*s3.ObjectIdentifier{
+		Delete: &s3types.Delete{
+			Objects: []s3types.ObjectIdentifier{
 				{
 					Key: aws.String(s3Path),
 				},
@@ -44,7 +44,7 @@ func (s *SSS) Delete(ctx context.Context, path string) error {
 // DeleteAll recursively deletes all objects stored at "path" and its subpaths.
 // We must be careful since S3 does not guarantee read after delete consistency
 func (s *SSS) DeleteAll(ctx context.Context, path string) error {
-	s3Objects := make([]*s3.ObjectIdentifier, 0, listMax)
+	s3Objects := make([]s3types.ObjectIdentifier, 0, listMax)
 	s3Path := s.s3Path(path)
 	listObjectsInput := &s3.ListObjectsV2Input{
 		Bucket: s.getBucket(),
@@ -53,7 +53,7 @@ func (s *SSS) DeleteAll(ctx context.Context, path string) error {
 
 	for {
 		// list all the objects
-		resp, err := s.s3.ListObjectsV2WithContext(ctx, listObjectsInput)
+		resp, err := s.s3.ListObjectsV2(ctx, listObjectsInput)
 
 		// resp.Contents can only be empty on the first call
 		// if there were no more results to return after the first call, resp.IsTruncated would have been false
@@ -67,7 +67,7 @@ func (s *SSS) DeleteAll(ctx context.Context, path string) error {
 			if len(*key.Key) > len(s3Path) && (*key.Key)[len(s3Path)] != '/' {
 				continue
 			}
-			s3Objects = append(s3Objects, &s3.ObjectIdentifier{
+			s3Objects = append(s3Objects, s3types.ObjectIdentifier{
 				Key: key.Key,
 			})
 		}
@@ -78,9 +78,9 @@ func (s *SSS) DeleteAll(ctx context.Context, path string) error {
 			// by default the response returns up to 1,000 key names. The response _might_ contain fewer keys but it will never contain more.
 			// 10000 keys is coincidentally (?) also the max number of keys that can be deleted in a single Delete operation, so we'll just smack
 			// Delete here straight away and reset the object slice when successful.
-			resp, err := s.s3.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
+			delResp, err := s.s3.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 				Bucket: s.getBucket(),
-				Delete: &s3.Delete{
+				Delete: &s3types.Delete{
 					Objects: s3Objects,
 					Quiet:   aws.Bool(false),
 				},
@@ -89,12 +89,12 @@ func (s *SSS) DeleteAll(ctx context.Context, path string) error {
 				return err
 			}
 
-			if len(resp.Errors) > 0 {
+			if len(delResp.Errors) > 0 {
 				// NOTE: AWS SDK s3.Error does not implement error interface which
 				// is pretty intensely sad, so we have to do away with this for now.
-				errs := make([]error, 0, len(resp.Errors))
-				for _, err := range resp.Errors {
-					errs = append(errs, errors.New(err.String()))
+				errs := make([]error, 0, len(delResp.Errors))
+				for _, e := range delResp.Errors {
+					errs = append(errs, fmt.Errorf("delete error: %s - %s", *e.Key, *e.Message))
 				}
 				return errors.Join(errs...)
 			}

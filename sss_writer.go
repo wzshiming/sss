@@ -11,19 +11,19 @@ import (
 	"sort"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 func (s *SSS) SignPut(path string, expires time.Duration) (string, error) {
 	return s.presign(expires,
-		func(c *s3.S3) *request.Request {
-			req, _ := c.PutObjectRequest(&s3.PutObjectInput{
+		func(presignClient *s3.PresignClient) (*v4.PresignedHTTPRequest, error) {
+			return presignClient.PresignPutObject(context.Background(), &s3.PutObjectInput{
 				Bucket: s.getBucket(),
 				Key:    aws.String(s.s3Path(path)),
-			})
-			return req
+			}, s3.WithPresignExpires(expires))
 		})
 }
 
@@ -59,15 +59,25 @@ func WithContentType(contentType string) WriterOptions {
 }
 
 func (s *SSS) PutContent(ctx context.Context, path string, contents []byte, opts ...WriterOptions) error {
+	encryptMode := s.getEncryptionMode()
+	storageClass := s.getStorageClass()
+	
 	putObjectInput := &s3.PutObjectInput{
-		Bucket:               s.getBucket(),
-		Key:                  aws.String(s.s3Path(path)),
-		ContentType:          s.getContentType(),
-		ACL:                  s.getACL(),
-		ServerSideEncryption: s.getEncryptionMode(),
-		SSEKMSKeyId:          s.getSSEKMSKeyID(),
-		StorageClass:         s.getStorageClass(),
-		Body:                 bytes.NewReader(contents),
+		Bucket:      s.getBucket(),
+		Key:         aws.String(s.s3Path(path)),
+		ContentType: s.getContentType(),
+		ACL:         s.getACL(),
+		Body:        bytes.NewReader(contents),
+	}
+	
+	if encryptMode != "" {
+		putObjectInput.ServerSideEncryption = encryptMode
+	}
+	if s.getSSEKMSKeyID() != nil {
+		putObjectInput.SSEKMSKeyId = s.getSSEKMSKeyID()
+	}
+	if storageClass != "" {
+		putObjectInput.StorageClass = storageClass
 	}
 
 	var o writerOption
@@ -81,7 +91,7 @@ func (s *SSS) PutContent(ctx context.Context, path string, contents []byte, opts
 		putObjectInput.ContentType = aws.String(o.ContentType)
 	}
 
-	_, err := s.s3.PutObjectWithContext(ctx, putObjectInput)
+	_, err := s.s3.PutObject(ctx, putObjectInput)
 	return parseError(path, err)
 }
 
@@ -93,20 +103,31 @@ func (s *SSS) Writer(ctx context.Context, path string, opts ...WriterOptions) (F
 		opt(&o)
 	}
 
+	encryptMode := s.getEncryptionMode()
+	storageClass := s.getStorageClass()
+	
 	createMultipartUploadInput := &s3.CreateMultipartUploadInput{
-		Bucket:               s.getBucket(),
-		Key:                  aws.String(key),
-		ContentType:          s.getContentType(),
-		ACL:                  s.getACL(),
-		ServerSideEncryption: s.getEncryptionMode(),
-		SSEKMSKeyId:          s.getSSEKMSKeyID(),
-		StorageClass:         s.getStorageClass(),
+		Bucket:      s.getBucket(),
+		Key:         aws.String(key),
+		ContentType: s.getContentType(),
+		ACL:         s.getACL(),
 	}
+	
+	if encryptMode != "" {
+		createMultipartUploadInput.ServerSideEncryption = encryptMode
+	}
+	if s.getSSEKMSKeyID() != nil {
+		createMultipartUploadInput.SSEKMSKeyId = s.getSSEKMSKeyID()
+	}
+	if storageClass != "" {
+		createMultipartUploadInput.StorageClass = storageClass
+	}
+	
 	if o.ContentType != "" {
 		createMultipartUploadInput.ContentType = aws.String(o.ContentType)
 	}
 
-	resp, err := s.s3.CreateMultipartUploadWithContext(ctx, createMultipartUploadInput)
+	resp, err := s.s3.CreateMultipartUpload(ctx, createMultipartUploadInput)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +186,7 @@ type writer struct {
 	driver    *SSS
 	key       string
 	uploadID  string
-	parts     []*s3.Part
+	parts     []s3types.Part
 	size      int64
 	buf       *bytes.Buffer
 	chunkSize int
@@ -175,7 +196,7 @@ type writer struct {
 	opt       writerOption
 }
 
-func (s *SSS) newWriter(ctx context.Context, key, uploadID string, parts []*s3.Part, opt writerOption) FileWriter {
+func (s *SSS) newWriter(ctx context.Context, key, uploadID string, parts []s3types.Part, opt writerOption) FileWriter {
 	var chunkSize = s.chunkSize
 	var size int64
 	if len(parts) > 0 {
@@ -183,7 +204,7 @@ func (s *SSS) newWriter(ctx context.Context, key, uploadID string, parts []*s3.P
 		chunkSize = int(*parts[0].Size)
 		for i := 0; i < len(parts); i++ {
 			part := parts[i]
-			if *part.PartNumber != int64(i+1) {
+			if *part.PartNumber != int32(i+1) {
 				parts = parts[:i]
 				break
 			}
@@ -251,7 +272,7 @@ func (w *writer) Cancel(ctx context.Context) error {
 	}
 
 	w.cancelled = true
-	_, err := w.driver.s3.AbortMultipartUploadWithContext(ctx, &s3.AbortMultipartUploadInput{
+	_, err := w.driver.s3.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
 		Bucket:   aws.String(w.driver.bucket),
 		Key:      aws.String(w.key),
 		UploadId: aws.String(w.uploadID),
@@ -277,7 +298,7 @@ func (w *writer) Commit(ctx context.Context) error {
 
 	completedUploadedParts := make(s3completedParts, len(w.parts))
 	for i, part := range w.parts {
-		completedUploadedParts[i] = &s3.CompletedPart{
+		completedUploadedParts[i] = s3types.CompletedPart{
 			ETag:       part.ETag,
 			PartNumber: part.PartNumber,
 		}
@@ -288,7 +309,7 @@ func (w *writer) Commit(ctx context.Context) error {
 		Bucket:   aws.String(w.driver.bucket),
 		Key:      aws.String(w.key),
 		UploadId: aws.String(w.uploadID),
-		MultipartUpload: &s3.CompletedMultipartUpload{
+		MultipartUpload: &s3types.CompletedMultipartUpload{
 			Parts: completedUploadedParts,
 		},
 	}
@@ -297,7 +318,7 @@ func (w *writer) Commit(ctx context.Context) error {
 		completeMultipartUploadInput.ChecksumSHA256 = aws.String(w.opt.SHA256)
 	}
 
-	_, err := w.driver.s3.CompleteMultipartUploadWithContext(ctx, completeMultipartUploadInput)
+	_, err := w.driver.s3.CompleteMultipartUpload(ctx, completeMultipartUploadInput)
 	if err != nil {
 		return err
 	}
@@ -312,9 +333,9 @@ func (w *writer) flush() error {
 	r := bytes.NewReader(w.buf.Next(w.chunkSize))
 
 	partSize := r.Len()
-	partNumber := aws.Int64(int64(len(w.parts)) + 1)
+	partNumber := aws.Int32(int32(len(w.parts)) + 1)
 
-	resp, err := w.driver.s3.UploadPartWithContext(w.ctx, &s3.UploadPartInput{
+	resp, err := w.driver.s3.UploadPart(w.ctx, &s3.UploadPartInput{
 		Bucket:     aws.String(w.driver.bucket),
 		Key:        aws.String(w.key),
 		PartNumber: partNumber,
@@ -325,7 +346,7 @@ func (w *writer) flush() error {
 		return fmt.Errorf("upload part: %w", err)
 	}
 
-	w.parts = append(w.parts, &s3.Part{
+	w.parts = append(w.parts, s3types.Part{
 		ETag:       resp.ETag,
 		PartNumber: partNumber,
 		Size:       aws.Int64(int64(partSize)),

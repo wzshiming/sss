@@ -1,6 +1,8 @@
 package sss_test
 
 import (
+	"context"
+	"errors"
 	"log"
 	"os"
 	"os/exec"
@@ -8,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 	"github.com/wzshiming/sss"
 )
 
@@ -35,13 +37,15 @@ func TestMain(m *testing.M) {
 
 	time.Sleep(2 * time.Second)
 
-	_, err = s.S3().HeadBucket(&s3.HeadBucketInput{
+	ctx := context.Background()
+	_, err = s.S3().HeadBucket(ctx, &s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	})
 
 	if err != nil {
-		if s3Err, ok := err.(awserr.Error); ok && s3Err.Code() == "NotFound" {
-			_, err = s.S3().CreateBucket(&s3.CreateBucketInput{
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && (apiErr.ErrorCode() == "NotFound" || apiErr.ErrorCode() == "NoSuchBucket") {
+			_, err = s.S3().CreateBucket(ctx, &s3.CreateBucketInput{
 				Bucket: aws.String(bucket),
 			})
 			if err != nil {
@@ -50,10 +54,6 @@ func TestMain(m *testing.M) {
 		} else {
 			log.Fatal(err)
 		}
-
-		s.S3().CreateBucket(&s3.CreateBucketInput{
-			Bucket: aws.String(bucket),
-		})
 	}
 
 	code := m.Run()

@@ -2,23 +2,18 @@ package sss
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 func (s *SSS) SignList(path string, expires time.Duration) (string, error) {
-	return s.presign(expires,
-		func(c *s3.S3) *request.Request {
-			req, _ := c.ListObjectsRequest(&s3.ListObjectsInput{
-				Bucket: s.getBucket(),
-				Prefix: aws.String(s.s3Path(path)),
-			})
-			return req
-		})
+	// Note: ListObjectsV2 presigning is not directly supported in AWS SDK v2
+	// This would require manual URL signing or using GetObject presigning as a workaround
+	return "", fmt.Errorf("SignList is not supported in AWS SDK v2")
 }
 
 func (s *SSS) List(ctx context.Context, opath string, fun func(fileInfo FileInfo) bool) error {
@@ -37,13 +32,20 @@ func (s *SSS) List(ctx context.Context, opath string, fun func(fileInfo FileInfo
 		prefix = "/"
 	}
 
-	err := s.s3.ListObjectsV2PagesWithContext(ctx, &s3.ListObjectsV2Input{
+	paginator := s3.NewListObjectsV2Paginator(s.s3, &s3.ListObjectsV2Input{
 		Bucket:    s.getBucket(),
 		Prefix:    aws.String(s.s3Path(path)),
 		Delimiter: aws.String("/"),
-		MaxKeys:   aws.Int64(listMax),
-	}, func(resp *s3.ListObjectsV2Output, lastPage bool) bool {
-		for _, key := range resp.Contents {
+		MaxKeys:   aws.Int32(listMax),
+	})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return parseError(opath, err)
+		}
+
+		for _, key := range page.Contents {
 			if *key.Size == 0 {
 				fileInfo := &fileInfo{
 					path:    strings.Replace(*key.Key, s3Path, prefix, 1),
@@ -52,7 +54,7 @@ func (s *SSS) List(ctx context.Context, opath string, fun func(fileInfo FileInfo
 					modTime: *key.LastModified,
 				}
 				if !fun(fileInfo) {
-					return false
+					return nil
 				}
 			} else {
 				fileInfo := &fileInfo{
@@ -62,25 +64,21 @@ func (s *SSS) List(ctx context.Context, opath string, fun func(fileInfo FileInfo
 					modTime: *key.LastModified,
 				}
 				if !fun(fileInfo) {
-					return false
+					return nil
 				}
 			}
 		}
 
-		for _, commonPrefix := range resp.CommonPrefixes {
+		for _, commonPrefix := range page.CommonPrefixes {
 			commonPrefix := *commonPrefix.Prefix
 			if !fun(&fileInfo{
 				path:    strings.Replace(commonPrefix[0:len(commonPrefix)-1], s3Path, prefix, 1),
 				isDir:   true,
 				modTime: time.Time{},
 			}) {
-				return false
+				return nil
 			}
 		}
-		return !lastPage
-	})
-	if err != nil {
-		return parseError(opath, err)
 	}
 	return nil
 }

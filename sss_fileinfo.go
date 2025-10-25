@@ -18,7 +18,7 @@ type FileInfoExpansion struct {
 	ContentType  *string
 	AcceptRanges *string
 	ETag         *string
-	Expires      *string
+	Expires      *time.Time
 }
 
 type fileInfo struct {

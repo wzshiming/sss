@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // ErrSkipDir is used as a return value from onFileFunc to indicate that
@@ -76,7 +76,7 @@ func (s *SSS) doWalk(ctx context.Context, objectCount *int64, from, startAfter s
 	listObjectsInput := &s3.ListObjectsV2Input{
 		Bucket:     s.getBucket(),
 		Prefix:     aws.String(s.s3Path(path)),
-		MaxKeys:    aws.Int64(listMax),
+		MaxKeys:    aws.Int32(listMax),
 		StartAfter: aws.String(s.s3Path(startAfter)),
 	}
 
@@ -89,10 +89,20 @@ func (s *SSS) doWalk(ctx context.Context, objectCount *int64, from, startAfter s
 	// ErrSkipDir is handled by explicitly skipping over any files under the skipped directory. This may be sub-optimal
 	// for extreme edge cases but for the general use case in a registry, this is orders of magnitude
 	// faster than a more explicit recursive implementation.
-	listObjectErr := s.s3.ListObjectsV2PagesWithContext(ctx, listObjectsInput, func(objects *s3.ListObjectsV2Output, lastPage bool) bool {
-		walkInfos := make([]fileInfo, 0, len(objects.Contents))
+	paginator := s3.NewListObjectsV2Paginator(s.s3, listObjectsInput)
+	
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			if retError != nil {
+				return retError
+			}
+			return err
+		}
+		
+		walkInfos := make([]fileInfo, 0, len(page.Contents))
 
-		for _, file := range objects.Contents {
+		for _, file := range page.Contents {
 			filePath := strings.Replace(*file.Key, s.s3Path(""), prefix, 1)
 
 			// get a list of all inferred directories between the previous directory and this file
@@ -117,6 +127,7 @@ func (s *SSS) doWalk(ctx context.Context, objectCount *int64, from, startAfter s
 			})
 		}
 
+		shouldContinue := true
 		for _, walkInfo := range walkInfos {
 			// skip any results under the last skip directory
 			if prevSkipDir != "" && strings.HasPrefix(walkInfo.Path(), prevSkipDir) {
@@ -132,21 +143,22 @@ func (s *SSS) doWalk(ctx context.Context, objectCount *int64, from, startAfter s
 					continue
 				}
 				if err == ErrFilledBuffer {
-					return false
+					shouldContinue = false
+					break
 				}
 				retError = err
-				return false
+				shouldContinue = false
+				break
 			}
 		}
-		return !lastPage
-	})
+		
+		if !shouldContinue {
+			break
+		}
+	}
 
 	if retError != nil {
 		return retError
-	}
-
-	if listObjectErr != nil {
-		return listObjectErr
 	}
 
 	return nil
