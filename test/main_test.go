@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/wzshiming/sss"
 )
@@ -28,32 +27,20 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	err = exec.Command("docker", "compose", "up", "-d").Run()
+	err = exec.Command("docker", "compose", "up", "-d", "--build").Run()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	time.Sleep(2 * time.Second)
+	// Wait for services to be ready (MinIO, bucket creation, and sss-serve)
+	time.Sleep(10 * time.Second)
 
+	// Verify bucket exists
 	_, err = s.S3().HeadBucket(&s3.HeadBucketInput{
 		Bucket: aws.String(bucket),
 	})
-
 	if err != nil {
-		if s3Err, ok := err.(awserr.Error); ok && s3Err.Code() == "NotFound" {
-			_, err = s.S3().CreateBucket(&s3.CreateBucketInput{
-				Bucket: aws.String(bucket),
-			})
-			if err != nil {
-				log.Fatal(err)
-			}
-		} else {
-			log.Fatal(err)
-		}
-
-		s.S3().CreateBucket(&s3.CreateBucketInput{
-			Bucket: aws.String(bucket),
-		})
+		log.Fatalf("Bucket %s does not exist or is not accessible: %v", bucket, err)
 	}
 
 	code := m.Run()

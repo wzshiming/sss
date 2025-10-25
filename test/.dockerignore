@@ -1,0 +1,6 @@
+.git
+.github
+test/
+*.md
+LICENSE
+.gitignore
