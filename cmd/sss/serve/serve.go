@@ -20,6 +20,9 @@ type flagpole struct {
 	AllowList   bool
 	AllowPut    bool
 	AllowDelete bool
+	
+	S3Compatible bool
+	S3Bucket     string
 }
 
 // NewCommand returns a new cobra.Command for serve
@@ -38,13 +41,23 @@ func NewCommand(ctx context.Context) *cobra.Command {
 				return err
 			}
 
-			h := serve.NewServe(
-				serve.WithSSS(s),
-				serve.WithRedirect(flags.Redirect, flags.Expires),
-				serve.WithAllowList(flags.AllowList),
-				serve.WithAllowPut(flags.AllowPut),
-				serve.WithAllowDelete(flags.AllowDelete),
-			)
+			var h http.Handler
+			if flags.S3Compatible {
+				// S3 compatibility mode
+				h = serve.NewServe(
+					serve.WithSSS(s),
+					serve.WithS3Compatibility(flags.S3Bucket),
+				)
+			} else {
+				// Regular HTTP file server mode
+				h = serve.NewServe(
+					serve.WithSSS(s),
+					serve.WithRedirect(flags.Redirect, flags.Expires),
+					serve.WithAllowList(flags.AllowList),
+					serve.WithAllowPut(flags.AllowPut),
+					serve.WithAllowDelete(flags.AllowDelete),
+				)
+			}
 
 			return http.ListenAndServe(flags.Address, h)
 		},
@@ -56,5 +69,7 @@ func NewCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().BoolVar(&flags.AllowList, "allow-list", flags.AllowList, "allow list")
 	cmd.Flags().BoolVar(&flags.AllowPut, "allow-put", flags.AllowPut, "allow put")
 	cmd.Flags().BoolVar(&flags.AllowDelete, "allow-delete", flags.AllowDelete, "allow delete")
+	cmd.Flags().BoolVar(&flags.S3Compatible, "s3-compatible", flags.S3Compatible, "enable S3 API compatibility mode")
+	cmd.Flags().StringVar(&flags.S3Bucket, "s3-bucket", flags.S3Bucket, "bucket name for S3 API compatibility mode")
 	return cmd
 }
