@@ -28,14 +28,14 @@ func NewS3Serve(s *sss.SSS, bucket string) http.Handler {
 
 // ListBucketResult represents the XML response for ListBucket operation
 type ListBucketResult struct {
-	XMLName     xml.Name `xml:"ListBucketResult"`
-	Xmlns       string   `xml:"xmlns,attr"`
-	Name        string   `xml:"Name"`
-	Prefix      string   `xml:"Prefix"`
-	Marker      string   `xml:"Marker"`
-	MaxKeys     int      `xml:"MaxKeys"`
-	IsTruncated bool     `xml:"IsTruncated"`
-	Contents    []Object `xml:"Contents"`
+	XMLName        xml.Name       `xml:"ListBucketResult"`
+	Xmlns          string         `xml:"xmlns,attr"`
+	Name           string         `xml:"Name"`
+	Prefix         string         `xml:"Prefix"`
+	Marker         string         `xml:"Marker"`
+	MaxKeys        int            `xml:"MaxKeys"`
+	IsTruncated    bool           `xml:"IsTruncated"`
+	Contents       []Object       `xml:"Contents"`
 	CommonPrefixes []CommonPrefix `xml:"CommonPrefixes"`
 }
 
@@ -65,7 +65,7 @@ type Error struct {
 func (s *S3Serve) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	// Parse the path to extract bucket and key
 	pathParts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/"), "/", 2)
-	
+
 	var bucket, key string
 	if len(pathParts) > 0 && pathParts[0] != "" {
 		bucket = pathParts[0]
@@ -136,13 +136,13 @@ func (s *S3Serve) listBucket(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	result := ListBucketResult{
-		Xmlns:       "http://s3.amazonaws.com/doc/2006-03-01/",
-		Name:        s.bucket,
-		Prefix:      strings.TrimPrefix(prefix, "/"),
-		Marker:      marker,
-		MaxKeys:     maxKeys,
-		IsTruncated: false,
-		Contents:    []Object{},
+		Xmlns:          "http://s3.amazonaws.com/doc/2006-03-01/",
+		Name:           s.bucket,
+		Prefix:         strings.TrimPrefix(prefix, "/"),
+		Marker:         marker,
+		MaxKeys:        maxKeys,
+		IsTruncated:    false,
+		Contents:       []Object{},
 		CommonPrefixes: []CommonPrefix{},
 	}
 
@@ -174,7 +174,7 @@ func (s *S3Serve) listBucket(rw http.ResponseWriter, r *http.Request) {
 			relPath := strings.TrimPrefix(key, strings.TrimPrefix(prefix, "/"))
 			parts := strings.SplitN(relPath, delimiter, 2)
 			commonPrefix := strings.TrimPrefix(prefix, "/") + parts[0] + delimiter
-			
+
 			if !seenPrefixes[commonPrefix] {
 				seenPrefixes[commonPrefix] = true
 				result.CommonPrefixes = append(result.CommonPrefixes, CommonPrefix{Prefix: commonPrefix})
@@ -204,7 +204,7 @@ func (s *S3Serve) listBucket(rw http.ResponseWriter, r *http.Request) {
 
 	rw.Header().Set("Content-Type", "application/xml")
 	rw.WriteHeader(http.StatusOK)
-	
+
 	encoder := xml.NewEncoder(rw)
 	encoder.Indent("", "  ")
 	if err := encoder.Encode(result); err != nil {
@@ -230,7 +230,7 @@ func (s *S3Serve) getObject(rw http.ResponseWriter, r *http.Request, key string)
 	rw.Header().Set("Content-Type", "application/octet-stream")
 	rw.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
 	rw.Header().Set("ETag", fmt.Sprintf(`"%s"`, ""))
-	
+
 	reader, err := s.sss.Reader(r.Context(), key)
 	if err != nil {
 		s.writeError(rw, "InternalError", err.Error(), key, http.StatusInternalServerError)
@@ -259,7 +259,7 @@ func (s *S3Serve) headObject(rw http.ResponseWriter, r *http.Request, key string
 	rw.Header().Set("Content-Type", "application/octet-stream")
 	rw.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
 	rw.Header().Set("ETag", fmt.Sprintf(`"%s"`, ""))
-	
+
 	rw.WriteHeader(http.StatusOK)
 }
 
@@ -327,7 +327,7 @@ func (s *S3Serve) writeError(rw http.ResponseWriter, code, message, resource str
 
 	rw.Header().Set("Content-Type", "application/xml")
 	rw.WriteHeader(status)
-	
+
 	encoder := xml.NewEncoder(rw)
 	encoder.Indent("", "  ")
 	encoder.Encode(errorResp)

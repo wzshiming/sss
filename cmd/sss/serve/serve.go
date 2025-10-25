@@ -20,7 +20,7 @@ type flagpole struct {
 	AllowList   bool
 	AllowPut    bool
 	AllowDelete bool
-	
+
 	S3Compatible bool
 	S3Bucket     string
 }

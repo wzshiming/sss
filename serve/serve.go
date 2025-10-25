@@ -46,14 +46,14 @@ func WithAllowDelete(b bool) Option {
 }
 
 type Serve struct {
-	sss           *sss.SSS
-	expires       time.Duration
-	redirect      bool
-	allowList     bool
-	allowPut      bool
-	allowDelete   bool
-	s3Compatible  bool
-	s3Bucket      string
+	sss          *sss.SSS
+	expires      time.Duration
+	redirect     bool
+	allowList    bool
+	allowPut     bool
+	allowDelete  bool
+	s3Compatible bool
+	s3Bucket     string
 }
 
 func NewServe(opts ...Option) http.Handler {
