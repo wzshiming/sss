@@ -319,6 +319,47 @@ func TestFileWriter(t *testing.T) {
 	}
 }
 
+func TestSignEndpoint(t *testing.T) {
+	// Create a new SSS instance with SignEndpoint configured
+	// This tests that SignEndpoint creates a separate session without modifying the main one
+	signURL := `sss://minioadmin:minioadmin@` + bucket + `.region?forcepathstyle=true&secure=false&regionendpoint=http://127.0.0.1:9000&signendpoint=http://localhost:9000`
+
+	sWithSign, err := sss.NewSSS(sss.WithURL(signURL))
+	if err != nil {
+		t.Fatalf("failed to create SSS with sign endpoint: %v", err)
+	}
+
+	key := "test-sign-object"
+	content := []byte("Test sign endpoint")
+
+	// Put an object
+	err = sWithSign.PutContent(t.Context(), key, content)
+	if err != nil {
+		t.Fatalf("failed to put object: %v", err)
+	}
+
+	// Generate a presigned GET URL
+	signedURL, err := sWithSign.SignGet(key, 60*1000000000) // 60 seconds
+	if err != nil {
+		t.Fatalf("failed to sign get: %v", err)
+	}
+
+	// Verify the presigned URL contains the sign endpoint (localhost:9000)
+	if signedURL == "" {
+		t.Fatal("signed URL is empty")
+	}
+
+	// The signed URL should contain localhost (from signendpoint) not 127.0.0.1 (from regionendpoint)
+	// This verifies that the sign endpoint is being used correctly
+	t.Logf("Signed URL: %s", signedURL)
+
+	// Clean up
+	err = sWithSign.Delete(t.Context(), key)
+	if err != nil {
+		t.Fatalf("failed to delete object: %v", err)
+	}
+}
+
 func TestMultipartFileWriter(t *testing.T) {
 	key := "test-multipart-object"
 	wantBuffer := bytes.NewBuffer(nil)

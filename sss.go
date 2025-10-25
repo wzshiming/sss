@@ -379,9 +379,21 @@ func NewSSS(opts ...Option) (*SSS, error) {
 	}
 
 	if params.SignEndpoint != "" {
-		sess.Config.Endpoint = &params.SignEndpoint
-		sess.Config.S3ForcePathStyle = aws.Bool(true)
-		s.signS3 = s3.New(sess)
+		// Create a separate config for signing to avoid modifying the main session
+		signConfig := awsConfig.Copy()
+		signConfig.WithEndpoint(params.SignEndpoint)
+		signConfig.WithS3ForcePathStyle(true)
+
+		signSess, err := session.NewSession(signConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create sign session with aws config: %v", err)
+		}
+
+		if params.UserAgent != "" {
+			signSess.Handlers.Build.PushBack(request.MakeAddToUserAgentFreeFormHandler(params.UserAgent))
+		}
+
+		s.signS3 = s3.New(signSess)
 	}
 	return s, nil
 }
