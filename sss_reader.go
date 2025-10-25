@@ -7,19 +7,18 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 func (s *SSS) SignGet(path string, expires time.Duration) (string, error) {
 	return s.presign(expires,
-		func(c *s3.S3) *request.Request {
-			req, _ := c.GetObjectRequest(&s3.GetObjectInput{
+		func(presignClient *s3.PresignClient) (*v4.PresignedHTTPRequest, error) {
+			return presignClient.PresignGetObject(context.Background(), &s3.GetObjectInput{
 				Bucket: s.getBucket(),
 				Key:    aws.String(s.s3Path(path)),
-			})
-			return req
+			}, s3.WithPresignExpires(expires))
 		})
 }
 
@@ -64,7 +63,7 @@ func (s *SSS) ReaderWithOffset(ctx context.Context, path string, offset int64) (
 	if offset > 0 {
 		getObjectInput.Range = aws.String("bytes=" + strconv.FormatInt(offset, 10) + "-")
 	}
-	resp, err := s.s3.GetObjectWithContext(ctx, getObjectInput)
+	resp, err := s.s3.GetObject(ctx, getObjectInput)
 	if err != nil {
 		return nil, parseError(path, err)
 	}
@@ -79,7 +78,7 @@ func (s *SSS) ReaderWithOffsetAndInfo(ctx context.Context, path string, offset i
 	if offset > 0 {
 		getObjectInput.Range = aws.String("bytes=" + strconv.FormatInt(offset, 10) + "-")
 	}
-	resp, err := s.s3.GetObjectWithContext(ctx, getObjectInput)
+	resp, err := s.s3.GetObject(ctx, getObjectInput)
 	if err != nil {
 		return nil, nil, parseError(path, err)
 	}
@@ -111,7 +110,7 @@ func (s *SSS) ReaderWithOffsetAndLimit(ctx context.Context, path string, offset,
 	if offset > 0 {
 		getObjectInput.Range = aws.String("bytes=" + strconv.FormatInt(offset, 10) + "-" + strconv.FormatInt(offset+limit-1, 10))
 	}
-	resp, err := s.s3.GetObjectWithContext(ctx, getObjectInput)
+	resp, err := s.s3.GetObject(ctx, getObjectInput)
 	if err != nil {
 		return nil, parseError(path, err)
 	}
@@ -133,7 +132,7 @@ func (s *SSS) ReaderWithOffsetAndLimitAndInfo(ctx context.Context, path string, 
 	if offset > 0 {
 		getObjectInput.Range = aws.String("bytes=" + strconv.FormatInt(offset, 10) + "-" + strconv.FormatInt(offset+limit-1, 10))
 	}
-	resp, err := s.s3.GetObjectWithContext(ctx, getObjectInput)
+	resp, err := s.s3.GetObject(ctx, getObjectInput)
 	if err != nil {
 		return nil, nil, parseError(path, err)
 	}

@@ -2,6 +2,8 @@ package sss
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,13 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/logging"
 )
 
 const (
@@ -50,7 +53,7 @@ type sssOption struct {
 	SessionToken   string
 	UseDualStack   bool
 	Accelerate     bool
-	LogLevel       aws.LogLevelType
+	LogLevel       logging.Classification
 }
 
 type Option func(*sssOption) error
@@ -188,7 +191,7 @@ func WithAccelerate(enable bool) Option {
 	}
 }
 
-func WithLogLevel(level aws.LogLevelType) Option {
+func WithLogLevel(level logging.Classification) Option {
 	return func(p *sssOption) error {
 		p.LogLevel = level
 		return nil
@@ -249,7 +252,7 @@ func WithURL(uri string) Option {
 			rootDirectory = rootDirectoryStr
 		}
 
-		storageClass := s3.StorageClassStandard
+		storageClass := string(s3types.StorageClassStandard)
 		storageClassString := query.Get("storageclass")
 		if storageClassString != "" {
 			storageClass = storageClassString
@@ -257,7 +260,7 @@ func WithURL(uri string) Option {
 
 		userAgent := query.Get("useragent")
 
-		objectACL := s3.ObjectCannedACLPrivate
+		objectACL := string(s3types.ObjectCannedACLPrivate)
 		objectACLString := query.Get("objectacl")
 		if objectACLString != "" {
 			objectACL = objectACLString
@@ -269,10 +272,10 @@ func WithURL(uri string) Option {
 
 		accelerateBool, _ := strconv.ParseBool(query.Get("accelerate"))
 
-		var logLevel = aws.LogOff
+		var logLevel logging.Classification
 		switch query.Get("loglevel") {
 		case "debug":
-			logLevel = aws.LogDebug
+			logLevel = logging.Debug
 		}
 
 		p.DriverName = u.Scheme
@@ -300,8 +303,10 @@ func WithURL(uri string) Option {
 }
 
 type SSS struct {
-	s3            *s3.S3
-	signS3        *s3.S3
+	s3            *s3.Client
+	signS3        *s3.Client
+	presignClient *s3.PresignClient
+	signPresignClient *s3.PresignClient
 	Name          string
 	bucket        string
 	chunkSize     int
@@ -315,8 +320,8 @@ type SSS struct {
 
 func NewSSS(opts ...Option) (*SSS, error) {
 	params := sssOption{
-		StorageClass: s3.StorageClassStandard,
-		ObjectACL:    s3.ObjectCannedACLPrivate,
+		StorageClass: string(s3types.StorageClassStandard),
+		ObjectACL:    string(s3types.ObjectCannedACLPrivate),
 		ChunkSize:    defaultChunkSize,
 	}
 
@@ -327,72 +332,113 @@ func NewSSS(opts ...Option) (*SSS, error) {
 		}
 	}
 
-	awsConfig := aws.NewConfig()
-	if params.AccessKey != "" && params.SecretKey != "" {
-		creds := credentials.NewStaticCredentials(
-			params.AccessKey,
-			params.SecretKey,
-			params.SessionToken,
-		)
-		awsConfig.WithCredentials(creds)
-	} else {
-		awsConfig.WithCredentials(credentials.AnonymousCredentials)
+	// Build AWS config options
+	configOpts := []func(*config.LoadOptions) error{}
+
+	if params.Region != "" {
+		configOpts = append(configOpts, config.WithRegion(params.Region))
 	}
+
+	if params.AccessKey != "" && params.SecretKey != "" {
+		configOpts = append(configOpts, config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(
+				params.AccessKey,
+				params.SecretKey,
+				params.SessionToken,
+			),
+		))
+	} else {
+		configOpts = append(configOpts, config.WithCredentialsProvider(
+			aws.AnonymousCredentials{},
+		))
+	}
+
+	if params.HTTPClient != nil {
+		configOpts = append(configOpts, config.WithHTTPClient(params.HTTPClient))
+	}
+
+	cfg, err := config.LoadDefaultConfig(context.Background(), configOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS config: %v", err)
+	}
+
+	// Build S3 client options
+	s3Opts := []func(*s3.Options){}
 
 	if params.RegionEndpoint != "" {
-		awsConfig.WithEndpoint(params.RegionEndpoint)
+		s3Opts = append(s3Opts, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(params.RegionEndpoint)
+		})
 	}
 
-	awsConfig.WithRegion(params.Region)
-	awsConfig.WithS3ForcePathStyle(params.ForcePathStyle)
-	awsConfig.WithS3UseAccelerate(params.Accelerate)
-	awsConfig.WithDisableSSL(!params.Secure)
-	awsConfig.WithHTTPClient(params.HTTPClient)
-	awsConfig.WithLogLevel(params.LogLevel)
+	s3Opts = append(s3Opts, func(o *s3.Options) {
+		o.UsePathStyle = params.ForcePathStyle
+	})
+
+	s3Opts = append(s3Opts, func(o *s3.Options) {
+		o.UseAccelerate = params.Accelerate
+	})
 
 	if params.UseDualStack {
-		awsConfig.UseDualStackEndpoint = endpoints.DualStackEndpointStateEnabled
+		s3Opts = append(s3Opts, func(o *s3.Options) {
+			o.EndpointOptions.UseDualStackEndpoint = aws.DualStackEndpointStateEnabled
+		})
 	}
 
-	sess, err := session.NewSession(awsConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create new session with aws config: %v", err)
+	s3Client := s3.NewFromConfig(cfg, s3Opts...)
+	presignClient := s3.NewPresignClient(s3Client)
+
+	var signS3Client *s3.Client
+	var signPresignClient *s3.PresignClient
+	if params.SignEndpoint != "" {
+		signS3Opts := append(s3Opts, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(params.SignEndpoint)
+			o.UsePathStyle = true
+		})
+		signS3Client = s3.NewFromConfig(cfg, signS3Opts...)
+		signPresignClient = s3.NewPresignClient(signS3Client)
 	}
 
-	if params.UserAgent != "" {
-		sess.Handlers.Build.PushBack(request.MakeAddToUserAgentFreeFormHandler(params.UserAgent))
-	}
-
-	s := &SSS{
-		s3:            s3.New(sess),
-		Name:          params.DriverName,
-		bucket:        params.Bucket,
-		chunkSize:     params.ChunkSize,
-		encrypt:       params.Encrypt,
-		keyID:         params.KeyID,
-		rootDirectory: params.RootDirectory,
-		storageClass:  params.StorageClass,
-		objectACL:     params.ObjectACL,
+	sss := &SSS{
+		s3:                s3Client,
+		signS3:            signS3Client,
+		presignClient:     presignClient,
+		signPresignClient: signPresignClient,
+		Name:              params.DriverName,
+		bucket:            params.Bucket,
+		chunkSize:         params.ChunkSize,
+		encrypt:           params.Encrypt,
+		keyID:             params.KeyID,
+		rootDirectory:     params.RootDirectory,
+		storageClass:      params.StorageClass,
+		objectACL:         params.ObjectACL,
 		pool: &sync.Pool{
 			New: func() any { return &bytes.Buffer{} },
 		},
 	}
 
-	if params.SignEndpoint != "" {
-		sess.Config.Endpoint = &params.SignEndpoint
-		sess.Config.S3ForcePathStyle = aws.Bool(true)
-		s.signS3 = s3.New(sess)
-	}
-	return s, nil
+	return sss, nil
 }
 
-func (s *SSS) presign(expires time.Duration, fun func(s3 *s3.S3) *request.Request) (string, error) {
-	if s.signS3 == nil {
-		return fun(s.s3).Presign(expires)
+func (s *SSS) presign(expires time.Duration, fun func(presignClient *s3.PresignClient) (*v4.PresignedHTTPRequest, error)) (string, error) {
+	if s.signPresignClient == nil {
+		req, err := fun(s.presignClient)
+		if err != nil {
+			return "", err
+		}
+		return req.URL, nil
 	}
-	req := fun(s.signS3)
-	req.HTTPRequest.URL.Path = strings.TrimPrefix(req.HTTPRequest.URL.Path, "/{Bucket}")
-	return req.Presign(expires)
+	req, err := fun(s.signPresignClient)
+	if err != nil {
+		return "", err
+	}
+	// Trim the /{Bucket} prefix if present
+	parsedURL, err := url.Parse(req.URL)
+	if err != nil {
+		return req.URL, nil
+	}
+	parsedURL.Path = strings.TrimPrefix(parsedURL.Path, "/"+s.bucket)
+	return parsedURL.String(), nil
 }
 
 func (s *SSS) s3Path(path string) string {
@@ -400,21 +446,28 @@ func (s *SSS) s3Path(path string) string {
 }
 
 func parseError(path string, err error) error {
-	if s3Err, ok := err.(awserr.Error); ok && s3Err.Code() == "NoSuchKey" {
-		return fmt.Errorf("path not found: %s", path)
+	if err == nil {
+		return nil
+	}
+	
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		if apiErr.ErrorCode() == "NoSuchKey" || apiErr.ErrorCode() == "NotFound" {
+			return fmt.Errorf("path not found: %s", path)
+		}
 	}
 
 	return err
 }
 
-func (s *SSS) getEncryptionMode() *string {
+func (s *SSS) getEncryptionMode() s3types.ServerSideEncryption {
 	if !s.encrypt {
-		return nil
+		return ""
 	}
 	if s.keyID == "" {
-		return aws.String("AES256")
+		return s3types.ServerSideEncryptionAes256
 	}
-	return aws.String("aws:kms")
+	return s3types.ServerSideEncryptionAwsKms
 }
 
 func (s *SSS) getSSEKMSKeyID() *string {
@@ -428,15 +481,15 @@ func (s *SSS) getContentType() *string {
 	return aws.String("application/octet-stream")
 }
 
-func (s *SSS) getACL() *string {
-	return aws.String(s.objectACL)
+func (s *SSS) getACL() s3types.ObjectCannedACL {
+	return s3types.ObjectCannedACL(s.objectACL)
 }
 
-func (s *SSS) getStorageClass() *string {
+func (s *SSS) getStorageClass() s3types.StorageClass {
 	if s.storageClass == noStorageClass {
-		return nil
+		return ""
 	}
-	return aws.String(s.storageClass)
+	return s3types.StorageClass(s.storageClass)
 }
 
 func (s *SSS) getBucket() *string {
@@ -447,17 +500,17 @@ func (s *SSS) ChunkSize() int {
 	return s.chunkSize
 }
 
-func (s *SSS) S3() *s3.S3 {
+func (s *SSS) S3() *s3.Client {
 	return s.s3
 }
 
-type s3completedParts []*s3.CompletedPart
+type s3completedParts []s3types.CompletedPart
 
 func (a s3completedParts) Len() int           { return len(a) }
 func (a s3completedParts) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a s3completedParts) Less(i, j int) bool { return *a[i].PartNumber < *a[j].PartNumber }
 
-type s3parts []*s3.Part
+type s3parts []s3types.Part
 
 func (a s3parts) Len() int           { return len(a) }
 func (a s3parts) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }

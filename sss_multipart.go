@@ -7,18 +7,19 @@ import (
 	"sort"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type Parts struct {
 	size         int64
 	lastModified time.Time
-	parts        []*s3.Part
+	parts        []s3types.Part
 }
 
-func (m *Parts) Items() []*s3.Part {
+func (m *Parts) Items() []s3types.Part {
 	return m.parts
 }
 
@@ -39,7 +40,7 @@ type Multipart struct {
 	key      string
 	uploadID string
 
-	parts []*s3.Part
+	parts []s3types.Part
 }
 
 func (m *Multipart) Key() string {
@@ -50,32 +51,34 @@ func (m *Multipart) UploadID() string {
 	return m.uploadID
 }
 
-func (m *Multipart) SetParts(parts []*s3.Part) {
+func (m *Multipart) SetParts(parts []s3types.Part) {
 	m.parts = parts
 }
 
 func (m *Multipart) Resume(ctx context.Context) error {
-	parts := make([]*s3.Part, 0, 16)
+	parts := make([]s3types.Part, 0, 16)
 	listPartsInput := &s3.ListPartsInput{
 		Bucket:   m.driver.getBucket(),
 		Key:      aws.String(m.driver.s3Path(m.key)),
 		UploadId: aws.String(m.uploadID),
 	}
 
-	err := m.driver.s3.ListPartsPagesWithContext(ctx, listPartsInput, func(partsList *s3.ListPartsOutput, lastPage bool) bool {
-		parts = append(parts, partsList.Parts...)
-		return !lastPage
-	})
-	if err != nil {
-		return err
+	paginator := s3.NewListPartsPaginator(m.driver.s3, listPartsInput)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		parts = append(parts, page.Parts...)
 	}
 
-	partMap := map[int64]*s3.Part{}
-	ignore := &s3.Part{}
+	partMap := map[int32]s3types.Part{}
+	var ignore s3types.Part
 
 	for _, part := range parts {
 		if existingPart, exists := partMap[*part.PartNumber]; exists {
-			if existingPart == ignore {
+			// Check if this is the ignore marker
+			if existingPart.PartNumber == ignore.PartNumber && existingPart.ETag == ignore.ETag {
 				continue
 			}
 			if *part.Size != *existingPart.Size || *part.ETag != *existingPart.ETag {
@@ -86,9 +89,12 @@ func (m *Multipart) Resume(ctx context.Context) error {
 		}
 	}
 
-	uniqueParts := make([]*s3.Part, 0, len(partMap))
+	uniqueParts := make([]s3types.Part, 0, len(partMap))
 	for _, part := range partMap {
-		uniqueParts = append(uniqueParts, part)
+		// Skip ignore markers
+		if part.PartNumber != ignore.PartNumber || part.ETag != ignore.ETag {
+			uniqueParts = append(uniqueParts, part)
+		}
 	}
 
 	sort.Sort(s3parts(uniqueParts))
@@ -132,13 +138,13 @@ func (m *Multipart) OrderParts(ctx context.Context) (*Parts, error) {
 	if len(m.parts) == 0 {
 		return &Parts{}, nil
 	}
-	parts := make([]*s3.Part, 0, 16)
+	parts := make([]s3types.Part, 0, 16)
 	var size int64
 	var lastModified = time.Now()
 	chunkSize := int(*m.parts[0].Size)
 	for i := 0; i < len(m.parts); i++ {
 		part := m.parts[i]
-		if *part.PartNumber != int64(i+1) {
+		if *part.PartNumber != int32(i+1) {
 			break
 		}
 		if *part.Size != int64(chunkSize) {
@@ -159,7 +165,7 @@ func (m *Multipart) OrderParts(ctx context.Context) (*Parts, error) {
 }
 
 func (m *Multipart) Cancel(ctx context.Context) error {
-	_, err := m.driver.s3.AbortMultipartUploadWithContext(ctx, &s3.AbortMultipartUploadInput{
+	_, err := m.driver.s3.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
 		Bucket:   aws.String(m.driver.bucket),
 		Key:      aws.String(m.key),
 		UploadId: aws.String(m.uploadID),
@@ -168,23 +174,24 @@ func (m *Multipart) Cancel(ctx context.Context) error {
 }
 
 func (m *Multipart) SignUploadPart(partNumber int64, expires time.Duration) (string, error) {
+	pn := aws.Int32(int32(partNumber))
 	return m.driver.presign(expires,
-		func(c *s3.S3) *request.Request {
-			req, _ := c.UploadPartRequest(&s3.UploadPartInput{
+		func(presignClient *s3.PresignClient) (*v4.PresignedHTTPRequest, error) {
+			return presignClient.PresignUploadPart(context.Background(), &s3.UploadPartInput{
 				Bucket:     aws.String(m.driver.bucket),
 				Key:        aws.String(m.key),
-				PartNumber: &partNumber,
+				PartNumber: pn,
 				UploadId:   aws.String(m.uploadID),
-			})
-			return req
+			}, s3.WithPresignExpires(expires))
 		})
 }
 
 func (m *Multipart) UploadPart(ctx context.Context, partNumber int64, body io.ReadSeeker) error {
-	_, err := m.driver.s3.UploadPartWithContext(ctx, &s3.UploadPartInput{
+	pn := aws.Int32(int32(partNumber))
+	_, err := m.driver.s3.UploadPart(ctx, &s3.UploadPartInput{
 		Bucket:     aws.String(m.driver.bucket),
 		Key:        aws.String(m.key),
-		PartNumber: &partNumber,
+		PartNumber: pn,
 		UploadId:   aws.String(m.uploadID),
 		Body:       body,
 	})
@@ -207,7 +214,7 @@ func (m *Multipart) Commit(ctx context.Context) error {
 	parts := m.parts
 	completedUploadedParts := make(s3completedParts, 0, len(parts))
 	for _, part := range parts {
-		completedUploadedParts = append(completedUploadedParts, &s3.CompletedPart{
+		completedUploadedParts = append(completedUploadedParts, s3types.CompletedPart{
 			ETag:       part.ETag,
 			PartNumber: part.PartNumber,
 		})
@@ -218,12 +225,12 @@ func (m *Multipart) Commit(ctx context.Context) error {
 		Bucket:   aws.String(m.driver.bucket),
 		Key:      aws.String(m.key),
 		UploadId: aws.String(m.uploadID),
-		MultipartUpload: &s3.CompletedMultipartUpload{
+		MultipartUpload: &s3types.CompletedMultipartUpload{
 			Parts: completedUploadedParts,
 		},
 	}
 
-	_, err := m.driver.s3.CompleteMultipartUploadWithContext(ctx, completeMultipartUploadInput)
+	_, err := m.driver.s3.CompleteMultipartUpload(ctx, completeMultipartUploadInput)
 	if err != nil {
 		return err
 	}
@@ -238,20 +245,21 @@ func (s *SSS) ListMultipart(ctx context.Context, path string, fun func(mp *Multi
 		Prefix: aws.String(key),
 	}
 
-	err := s.s3.ListMultipartUploadsPagesWithContext(ctx, listMultipartUploadsInput, func(resp *s3.ListMultipartUploadsOutput, lastPage bool) bool {
-		for _, multi := range resp.Uploads {
+	paginator := s3.NewListMultipartUploadsPaginator(s.s3, listMultipartUploadsInput)
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return parseError(path, err)
+		}
+		for _, multi := range page.Uploads {
 			if !fun(&Multipart{
 				uploadID: *multi.UploadId,
 				key:      *multi.Key,
 				driver:   s,
 			}) {
-				return false
+				return nil
 			}
 		}
-		return !lastPage
-	})
-	if err != nil {
-		return parseError(path, err)
 	}
 
 	return nil
@@ -325,15 +333,28 @@ func (s *SSS) GetMultipartByUploadID(ctx context.Context, path, uploadID string)
 
 func (s *SSS) NewMultipart(ctx context.Context, path string) (*Multipart, error) {
 	key := s.s3Path(path)
-	resp, err := s.s3.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
-		Bucket:               s.getBucket(),
-		Key:                  aws.String(key),
-		ContentType:          s.getContentType(),
-		ACL:                  s.getACL(),
-		ServerSideEncryption: s.getEncryptionMode(),
-		SSEKMSKeyId:          s.getSSEKMSKeyID(),
-		StorageClass:         s.getStorageClass(),
-	})
+	
+	encryptMode := s.getEncryptionMode()
+	storageClass := s.getStorageClass()
+	
+	input := &s3.CreateMultipartUploadInput{
+		Bucket:      s.getBucket(),
+		Key:         aws.String(key),
+		ContentType: s.getContentType(),
+		ACL:         s.getACL(),
+	}
+	
+	if encryptMode != "" {
+		input.ServerSideEncryption = encryptMode
+	}
+	if s.getSSEKMSKeyID() != nil {
+		input.SSEKMSKeyId = s.getSSEKMSKeyID()
+	}
+	if storageClass != "" {
+		input.StorageClass = storageClass
+	}
+	
+	resp, err := s.s3.CreateMultipartUpload(ctx, input)
 	if err != nil {
 		return nil, err
 	}

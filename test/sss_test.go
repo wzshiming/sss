@@ -5,13 +5,14 @@ import (
 	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"math/rand"
 	"reflect"
 	"sync"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/smithy-go"
 	"github.com/wzshiming/sss"
 )
 
@@ -21,7 +22,8 @@ func TestBasic(t *testing.T) {
 
 	_, err := s.StatHead(t.Context(), key)
 	if err != nil {
-		if s3Err, ok := err.(awserr.Error); ok && s3Err.Code() != "NotFound" {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && (apiErr.ErrorCode() != "NotFound" && apiErr.ErrorCode() != "NoSuchBucket") {
 			t.Fatalf("failed to stat head: %v", err)
 		}
 	} else {
@@ -63,7 +65,8 @@ func TestBasic(t *testing.T) {
 
 	_, err = s.StatHead(t.Context(), key)
 	if err != nil {
-		if s3Err, ok := err.(awserr.Error); ok && s3Err.Code() != "NotFound" {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && (apiErr.ErrorCode() != "NotFound" && apiErr.ErrorCode() != "NoSuchBucket") {
 			t.Fatalf("failed to stat head: %v", err)
 		}
 	} else {
