@@ -308,8 +308,13 @@ func (s *S3Serve) deleteObject(rw http.ResponseWriter, r *http.Request, key stri
 
 	err := s.sss.Delete(r.Context(), key)
 	if err != nil {
-		// S3 DELETE returns 204 even if object doesn't exist
-		// But we'll return error for actual errors
+		// Check if it's a "not found" error - S3 returns 204 even if object doesn't exist
+		errStr := err.Error()
+		if strings.Contains(errStr, "not found") || strings.Contains(errStr, "NoSuchKey") {
+			rw.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Return error for other actual errors
 		s.writeError(rw, "InternalError", err.Error(), key, http.StatusInternalServerError)
 		return
 	}
