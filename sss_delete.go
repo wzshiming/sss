@@ -24,16 +24,9 @@ func (s *SSS) SignDelete(path string, expires time.Duration) (string, error) {
 
 func (s *SSS) Delete(ctx context.Context, path string) error {
 	s3Path := s.s3Path(path)
-	_, err := s.s3.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
+	_, err := s.s3.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
 		Bucket: s.getBucket(),
-		Delete: &s3.Delete{
-			Objects: []*s3.ObjectIdentifier{
-				{
-					Key: aws.String(s3Path),
-				},
-			},
-			Quiet: aws.Bool(false),
-		},
+		Key:    aws.String(s3Path),
 	})
 	if err != nil {
 		return err
