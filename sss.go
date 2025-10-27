@@ -30,27 +30,28 @@ const (
 )
 
 type sssOption struct {
-	HTTPClient     *http.Client
-	DriverName     string
-	AccessKey      string
-	SecretKey      string
-	Bucket         string
-	Region         string
-	RegionEndpoint string
-	SignEndpoint   string
-	ForcePathStyle bool
-	Encrypt        bool
-	KeyID          string
-	Secure         bool
-	ChunkSize      int
-	RootDirectory  string
-	StorageClass   string
-	UserAgent      string
-	ObjectACL      string
-	SessionToken   string
-	UseDualStack   bool
-	Accelerate     bool
-	LogLevel       aws.LogLevelType
+	HTTPClient          *http.Client
+	DriverName          string
+	AccessKey           string
+	SecretKey           string
+	Bucket              string
+	Region              string
+	RegionEndpoint      string
+	SignEndpoint        string
+	SignEndpointMethods []string
+	ForcePathStyle      bool
+	Encrypt             bool
+	KeyID               string
+	Secure              bool
+	ChunkSize           int
+	RootDirectory       string
+	StorageClass        string
+	UserAgent           string
+	ObjectACL           string
+	SessionToken        string
+	UseDualStack        bool
+	Accelerate          bool
+	LogLevel            aws.LogLevelType
 }
 
 type Option func(*sssOption) error
@@ -100,6 +101,14 @@ func WithRegion(region string) Option {
 func WithRegionEndpoint(endpoint string) Option {
 	return func(p *sssOption) error {
 		p.RegionEndpoint = endpoint
+		return nil
+	}
+}
+
+func WithSignEndpoint(endpoint string, methods ...string) Option {
+	return func(p *sssOption) error {
+		p.SignEndpoint = endpoint
+		p.SignEndpointMethods = methods
 		return nil
 	}
 }
@@ -221,6 +230,12 @@ func WithURL(uri string) Option {
 
 		signEndpoint := query.Get("signendpoint")
 
+		signendpointmethods := query.Get("signendpointmethods")
+		var signEndpointMethodsStrings []string
+		if signendpointmethods != "" {
+			signEndpointMethodsStrings = strings.Split(signendpointmethods, ",")
+		}
+
 		regionEndpoint := query.Get("regionendpoint")
 
 		forcePathStyleBool, _ := strconv.ParseBool(query.Get("forcepathstyle"))
@@ -295,6 +310,7 @@ func WithURL(uri string) Option {
 		p.UseDualStack = useDualStackBool
 		p.Accelerate = accelerateBool
 		p.LogLevel = logLevel
+		p.SignEndpointMethods = signEndpointMethodsStrings
 		return nil
 	}
 }
@@ -302,6 +318,7 @@ func WithURL(uri string) Option {
 type SSS struct {
 	s3            *s3.S3
 	signS3        *s3.S3
+	signMethods   map[string]struct{}
 	Name          string
 	bucket        string
 	chunkSize     int
@@ -382,6 +399,14 @@ func NewSSS(opts ...Option) (*SSS, error) {
 		sess.Config.Endpoint = &params.SignEndpoint
 		sess.Config.S3ForcePathStyle = aws.Bool(true)
 		s.signS3 = s3.New(sess)
+		if len(params.SignEndpointMethods) != 0 {
+			s.signMethods = make(map[string]struct{})
+			for _, method := range params.SignEndpointMethods {
+				s.signMethods[strings.ToUpper(method)] = struct{}{}
+			}
+		} else {
+			s.signMethods = nil
+		}
 	}
 	return s, nil
 }
@@ -389,6 +414,12 @@ func NewSSS(opts ...Option) (*SSS, error) {
 func (s *SSS) presign(expires time.Duration, fun func(s3 *s3.S3) *request.Request) (string, error) {
 	if s.signS3 == nil {
 		return fun(s.s3).Presign(expires)
+	}
+	if s.signMethods != nil {
+		req := fun(s.s3)
+		if _, ok := s.signMethods[req.HTTPRequest.Method]; !ok {
+			return req.Presign(expires)
+		}
 	}
 	req := fun(s.signS3)
 	req.HTTPRequest.URL.Path = strings.TrimPrefix(req.HTTPRequest.URL.Path, "/{Bucket}")
