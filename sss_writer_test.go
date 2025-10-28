@@ -7,6 +7,8 @@ import (
 )
 
 func TestWithSHA256(t *testing.T) {
+	testBytes := []byte{0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99, 0x88}
+	
 	tests := []struct {
 		name     string
 		input    string
@@ -15,20 +17,23 @@ func TestWithSHA256(t *testing.T) {
 	}{
 		{
 			name:    "base64 encoded SHA256",
-			input:   base64.URLEncoding.EncodeToString([]byte("test-checksum-value-32bytes!")),
+			input:   base64.URLEncoding.EncodeToString(testBytes),
 			wantSet: true,
 			validate: func(s string) bool {
-				_, err := base64.URLEncoding.DecodeString(s)
-				return err == nil
+				// Input was already base64, should be unchanged
+				return s == base64.URLEncoding.EncodeToString(testBytes)
 			},
 		},
 		{
 			name:    "hex encoded SHA256",
-			input:   hex.EncodeToString([]byte("test-checksum-value-32bytes!")),
+			input:   hex.EncodeToString(testBytes),
 			wantSet: true,
 			validate: func(s string) bool {
+				// WithSHA256 tries base64 decode first, then hex decode
+				// Since hex strings (0-9a-f) are often valid base64, we just verify 
+				// that something was set and it's valid base64
 				_, err := base64.URLEncoding.DecodeString(s)
-				return err == nil
+				return err == nil && s != ""
 			},
 		},
 		{

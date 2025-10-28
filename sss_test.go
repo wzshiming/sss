@@ -396,7 +396,7 @@ func TestGetStorageClass(t *testing.T) {
 		},
 		{
 			name:         "no storage class",
-			storageClass: noStorageClass,
+			storageClass: "NONE", // noStorageClass constant value
 			want:         nil,
 		},
 		{

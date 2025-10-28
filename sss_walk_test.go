@@ -54,7 +54,7 @@ func TestDirectoryDiff(t *testing.T) {
 			expected: []string{},
 		},
 		{
-			name:     "same path",
+			name:     "file directly in prev directory",
 			prev:     "/path/to/folder",
 			current:  "/path/to/folder/file",
 			expected: []string{},
