@@ -13,9 +13,14 @@ import (
 )
 
 var (
-	sssBinary = "../sss"
-	testURL   = `sss://minioadmin:minioadmin@sss-test-bucket.region?forcepathstyle=true&secure=false&chunksize=5242880&regionendpoint=http://127.0.0.1:9000`
+	testURL = `sss://minioadmin:minioadmin@sss-test-bucket.region?forcepathstyle=true&secure=false&chunksize=5242880&regionendpoint=http://127.0.0.1:9000`
 )
+
+// sssCommand creates an exec.Cmd for running the sss CLI via go run
+func sssCommand(args ...string) *exec.Cmd {
+	cmdArgs := append([]string{"run", "../cmd/sss"}, args...)
+	return exec.Command("go", cmdArgs...)
+}
 
 // TestE2EPutGet tests basic put and get operations via CLI
 func TestE2EPutGet(t *testing.T) {
@@ -32,14 +37,14 @@ func TestE2EPutGet(t *testing.T) {
 	}
 
 	// Put file to S3
-	cmd := exec.Command(sssBinary, "put", "--url", testURL, remoteKey, testFile)
+	cmd := sssCommand( "put", "--url", testURL, remoteKey, testFile)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("put command failed: %v, output: %s", err, output)
 	}
 
 	// Get file from S3
-	cmd = exec.Command(sssBinary, "get", "--url", testURL, remoteKey, downloadFile)
+	cmd = sssCommand( "get", "--url", testURL, remoteKey, downloadFile)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("get command failed: %v, output: %s", err, output)
@@ -56,7 +61,7 @@ func TestE2EPutGet(t *testing.T) {
 	}
 
 	// Clean up
-	cmd = exec.Command(sssBinary, "rm", "--url", testURL, remoteKey)
+	cmd = sssCommand( "rm", "--url", testURL, remoteKey)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("rm command failed: %v, output: %s", err, output)
@@ -69,7 +74,7 @@ func TestE2EPutGetStdin(t *testing.T) {
 	remoteKey := "e2e-test-stdin"
 
 	// Put from stdin
-	cmd := exec.Command(sssBinary, "put", "--url", testURL, remoteKey)
+	cmd := sssCommand( "put", "--url", testURL, remoteKey)
 	cmd.Stdin = bytes.NewReader(testContent)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -77,7 +82,7 @@ func TestE2EPutGetStdin(t *testing.T) {
 	}
 
 	// Get to stdout
-	cmd = exec.Command(sssBinary, "get", "--url", testURL, remoteKey)
+	cmd = sssCommand( "get", "--url", testURL, remoteKey)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("get to stdout failed: %v, output: %s", err, output)
@@ -88,7 +93,7 @@ func TestE2EPutGetStdin(t *testing.T) {
 	}
 
 	// Clean up
-	cmd = exec.Command(sssBinary, "rm", "--url", testURL, remoteKey)
+	cmd = sssCommand( "rm", "--url", testURL, remoteKey)
 	_, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("rm command failed: %v", err)
@@ -115,7 +120,7 @@ func TestE2EList(t *testing.T) {
 
 	// Upload test files
 	for _, key := range keys {
-		cmd := exec.Command(sssBinary, "put", "--url", testURL, key, testFile)
+		cmd := sssCommand( "put", "--url", testURL, key, testFile)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("put command failed for %s: %v, output: %s", key, err, output)
@@ -123,7 +128,7 @@ func TestE2EList(t *testing.T) {
 	}
 
 	// List files
-	cmd := exec.Command(sssBinary, "ls", "--url", testURL, "e2e-ls-test")
+	cmd := sssCommand( "ls", "--url", testURL, "e2e-ls-test")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("ls command failed: %v, output: %s", err, output)
@@ -136,7 +141,7 @@ func TestE2EList(t *testing.T) {
 
 	// Clean up
 	for _, key := range keys {
-		cmd := exec.Command(sssBinary, "rm", "--url", testURL, key)
+		cmd := sssCommand( "rm", "--url", testURL, key)
 		_, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Logf("cleanup failed for %s: %v", key, err)
@@ -160,21 +165,21 @@ func TestE2ECopy(t *testing.T) {
 	}
 
 	// Put source file
-	cmd := exec.Command(sssBinary, "put", "--url", testURL, sourceKey, testFile)
+	cmd := sssCommand( "put", "--url", testURL, sourceKey, testFile)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("put command failed: %v, output: %s", err, output)
 	}
 
 	// Copy within S3 (cp <destination> <source>)
-	cmd = exec.Command(sssBinary, "cp", "--url", testURL, destKey, sourceKey)
+	cmd = sssCommand( "cp", "--url", testURL, destKey, sourceKey)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("cp command failed: %v, output: %s", err, output)
 	}
 
 	// Verify destination exists
-	cmd = exec.Command(sssBinary, "get", "--url", testURL, destKey, downloadFile)
+	cmd = sssCommand( "get", "--url", testURL, destKey, downloadFile)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("get command failed: %v, output: %s", err, output)
@@ -190,9 +195,9 @@ func TestE2ECopy(t *testing.T) {
 	}
 
 	// Clean up
-	cmd = exec.Command(sssBinary, "rm", "--url", testURL, sourceKey)
+	cmd = sssCommand( "rm", "--url", testURL, sourceKey)
 	cmd.Run()
-	cmd = exec.Command(sssBinary, "rm", "--url", testURL, destKey)
+	cmd = sssCommand( "rm", "--url", testURL, destKey)
 	cmd.Run()
 }
 
@@ -210,14 +215,14 @@ func TestE2EStat(t *testing.T) {
 	}
 
 	// Put file
-	cmd := exec.Command(sssBinary, "put", "--url", testURL, remoteKey, testFile)
+	cmd := sssCommand( "put", "--url", testURL, remoteKey, testFile)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("put command failed: %v, output: %s", err, output)
 	}
 
 	// Stat file
-	cmd = exec.Command(sssBinary, "stat", "--url", testURL, remoteKey)
+	cmd = sssCommand( "stat", "--url", testURL, remoteKey)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("stat command failed: %v, output: %s", err, output)
@@ -229,7 +234,7 @@ func TestE2EStat(t *testing.T) {
 	}
 
 	// Clean up
-	cmd = exec.Command(sssBinary, "rm", "--url", testURL, remoteKey)
+	cmd = sssCommand( "rm", "--url", testURL, remoteKey)
 	cmd.Run()
 }
 
@@ -253,7 +258,7 @@ func TestE2EFind(t *testing.T) {
 
 	// Upload test files
 	for _, key := range keys {
-		cmd := exec.Command(sssBinary, "put", "--url", testURL, key, testFile)
+		cmd := sssCommand( "put", "--url", testURL, key, testFile)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("put command failed for %s: %v, output: %s", key, err, output)
@@ -261,7 +266,7 @@ func TestE2EFind(t *testing.T) {
 	}
 
 	// Find files
-	cmd := exec.Command(sssBinary, "find", "--url", testURL, "e2e-find-test")
+	cmd := sssCommand( "find", "--url", testURL, "e2e-find-test")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("find command failed: %v, output: %s", err, output)
@@ -276,7 +281,7 @@ func TestE2EFind(t *testing.T) {
 
 	// Clean up
 	for _, key := range keys {
-		cmd := exec.Command(sssBinary, "rm", "--url", testURL, key)
+		cmd := sssCommand( "rm", "--url", testURL, key)
 		cmd.Run()
 	}
 }
@@ -307,14 +312,14 @@ func TestE2ELargeFile(t *testing.T) {
 	expectedHash := hex.EncodeToString(hash.Sum(nil))
 
 	// Put large file
-	cmd := exec.Command(sssBinary, "put", "--url", testURL, remoteKey, testFile)
+	cmd := sssCommand( "put", "--url", testURL, remoteKey, testFile)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("put command failed: %v, output: %s", err, output)
 	}
 
 	// Get large file
-	cmd = exec.Command(sssBinary, "get", "--url", testURL, remoteKey, downloadFile)
+	cmd = sssCommand( "get", "--url", testURL, remoteKey, downloadFile)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("get command failed: %v, output: %s", err, output)
@@ -335,7 +340,7 @@ func TestE2ELargeFile(t *testing.T) {
 	}
 
 	// Clean up
-	cmd = exec.Command(sssBinary, "rm", "--url", testURL, remoteKey)
+	cmd = sssCommand( "rm", "--url", testURL, remoteKey)
 	cmd.Run()
 }
 
@@ -354,7 +359,7 @@ func TestE2EContinuePut(t *testing.T) {
 	}
 
 	// Put file (first part, without commit)
-	cmd := exec.Command(sssBinary, "put", "--url", testURL, "--commit=false", remoteKey, testFile)
+	cmd := sssCommand( "put", "--url", testURL, "--commit=false", remoteKey, testFile)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("put command failed: %v, output: %s", err, output)
@@ -369,14 +374,14 @@ func TestE2EContinuePut(t *testing.T) {
 	}
 
 	// Continue put and commit
-	cmd = exec.Command(sssBinary, "put", "--url", testURL, "--continue", remoteKey, testFile)
+	cmd = sssCommand( "put", "--url", testURL, "--continue", remoteKey, testFile)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("continue put command failed: %v, output: %s", err, output)
 	}
 
 	// Get file
-	cmd = exec.Command(sssBinary, "get", "--url", testURL, remoteKey, downloadFile)
+	cmd = sssCommand( "get", "--url", testURL, remoteKey, downloadFile)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("get command failed: %v, output: %s", err, output)
@@ -393,7 +398,7 @@ func TestE2EContinuePut(t *testing.T) {
 	}
 
 	// Clean up
-	cmd = exec.Command(sssBinary, "rm", "--url", testURL, remoteKey)
+	cmd = sssCommand( "rm", "--url", testURL, remoteKey)
 	cmd.Run()
 }
 
@@ -411,7 +416,7 @@ func TestE2EContinueGet(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	cmd := exec.Command(sssBinary, "put", "--url", testURL, remoteKey, testFile)
+	cmd := sssCommand( "put", "--url", testURL, remoteKey, testFile)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("put command failed: %v, output: %s", err, output)
@@ -425,7 +430,7 @@ func TestE2EContinueGet(t *testing.T) {
 	}
 
 	// Continue download
-	cmd = exec.Command(sssBinary, "get", "--url", testURL, "--continue", remoteKey, downloadFile)
+	cmd = sssCommand( "get", "--url", testURL, "--continue", remoteKey, downloadFile)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("continue get command failed: %v, output: %s", err, output)
@@ -442,6 +447,6 @@ func TestE2EContinueGet(t *testing.T) {
 	}
 
 	// Clean up
-	cmd = exec.Command(sssBinary, "rm", "--url", testURL, remoteKey)
+	cmd = sssCommand( "rm", "--url", testURL, remoteKey)
 	cmd.Run()
 }

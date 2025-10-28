@@ -79,7 +79,6 @@ The tests use the following configuration:
 
 ## Notes
 
-- The e2e tests build the `sss` CLI binary before running tests
-- The binary is excluded from git via `.gitignore`
+- The e2e tests use `go run` to execute the CLI commands directly
 - Tests clean up after themselves by deleting created objects
 - Some tests may take longer due to large file operations
