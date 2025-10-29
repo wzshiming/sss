@@ -17,8 +17,9 @@ func NewCommand(ctx context.Context) *cobra.Command {
 	flags := &flagpole{}
 
 	cmd := &cobra.Command{
-		Args: cobra.ExactArgs(2),
-		Use:  "cp <remote> <remote-old>",
+		Args:  cobra.ExactArgs(2),
+		Use:   "cp <remote> <remote-old>",
+		Short: "Copy files within S3",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := sss.NewSSS(sss.WithURL(flags.URL))
 			if err != nil {

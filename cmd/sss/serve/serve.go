@@ -30,8 +30,9 @@ func NewCommand(ctx context.Context) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Args: cobra.NoArgs,
-		Use:  "serve",
+		Args:  cobra.NoArgs,
+		Use:   "serve",
+		Short: "Start HTTP server for S3 content",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := sss.NewSSS(sss.WithURL(flags.URL))
 			if err != nil {

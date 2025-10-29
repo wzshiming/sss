@@ -26,8 +26,9 @@ func NewCommand(ctx context.Context) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Args: cobra.RangeArgs(0, 1),
-		Use:  "find <remote>",
+		Args:  cobra.RangeArgs(0, 1),
+		Use:   "find <remote>",
+		Short: "Search for files in S3",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := sss.NewSSS(sss.WithURL(flags.URL))
 			if err != nil {

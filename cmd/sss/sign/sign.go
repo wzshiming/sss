@@ -16,8 +16,9 @@ import (
 // NewCommand returns a new cobra.Command for sign
 func NewCommand(ctx context.Context) *cobra.Command {
 	cmd := &cobra.Command{
-		Args: cobra.NoArgs,
-		Use:  "sign",
+		Args:  cobra.NoArgs,
+		Use:   "sign",
+		Short: "Generate presigned URLs for S3 operations",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},

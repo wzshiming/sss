@@ -32,8 +32,10 @@ func main() {
 // NewCommand returns a new cobra.Command for root
 func NewCommand(ctx context.Context) *cobra.Command {
 	cmd := &cobra.Command{
-		Args: cobra.NoArgs,
-		Use:  "sss",
+		Args:  cobra.NoArgs,
+		Use:   "sss",
+		Short: "SSS - S3 Simple Storage CLI tool",
+		Long:  "A command-line tool for interacting with Amazon S3 and S3-compatible storage services.\nProvides simple commands for uploading, downloading, listing, and managing S3 objects.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
