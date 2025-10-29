@@ -18,8 +18,9 @@ func NewCommand(ctx context.Context) *cobra.Command {
 	flags := &flagpole{}
 
 	cmd := &cobra.Command{
-		Args: cobra.ExactArgs(1),
-		Use:  "commit <remote>",
+		Args:  cobra.ExactArgs(1),
+		Use:   "commit <remote>",
+		Short: "Complete a multipart upload",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := sss.NewSSS(sss.WithURL(flags.URL))
 			if err != nil {
