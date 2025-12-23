@@ -22,8 +22,9 @@ func NewCommand(ctx context.Context) *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Args: cobra.ExactArgs(1),
-		Use:  "put <remote>",
+		Args:  cobra.ExactArgs(1),
+		Use:   "put <remote>",
+		Short: "Generate presigned PUT URL",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			s, err := sss.NewSSS(sss.WithURL(flags.URL))
 			if err != nil {

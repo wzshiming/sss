@@ -1,3 +1,36 @@
+// Package sss provides a simple interface for Amazon S3 and S3-compatible storage services.
+//
+// SSS (S3 Simple Storage) wraps the AWS SDK for Go to offer both a programmatic API
+// and command-line utilities for common S3 operations including:
+//   - File upload/download with resume support
+//   - Multipart uploads with parallel processing
+//   - Directory listing and walking
+//   - Presigned URL generation
+//   - HTTP server for S3 content
+//
+// Basic usage:
+//
+//	s, err := sss.NewSSS(
+//		sss.WithAccessKey("YOUR_ACCESS_KEY"),
+//		sss.WithSecretKey("YOUR_SECRET_KEY"),
+//		sss.WithBucket("my-bucket"),
+//		sss.WithRegion("us-west-2"),
+//	)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Upload content
+//	err = s.PutContent(ctx, "/hello.txt", []byte("Hello, World!"))
+//
+//	// Download content
+//	data, err := s.GetContent(ctx, "/hello.txt")
+//
+// For MinIO or other S3-compatible services:
+//
+//	s, err := sss.NewSSS(
+//		sss.WithURL("sss://minioadmin:minioadmin@bucket.region?regionendpoint=http://localhost:9000&forcepathstyle=true&secure=false"),
+//	)
 package sss
 
 import (
@@ -54,8 +87,10 @@ type sssOption struct {
 	LogLevel            aws.LogLevelType
 }
 
+// Option is a function that configures an SSS instance.
 type Option func(*sssOption) error
 
+// WithHTTPClient sets a custom HTTP client for S3 requests.
 func WithHTTPClient(client *http.Client) Option {
 	return func(p *sssOption) error {
 		p.HTTPClient = client
@@ -63,6 +98,7 @@ func WithHTTPClient(client *http.Client) Option {
 	}
 }
 
+// WithDriverName sets the driver name identifier.
 func WithDriverName(name string) Option {
 	return func(p *sssOption) error {
 		p.DriverName = name
@@ -70,6 +106,7 @@ func WithDriverName(name string) Option {
 	}
 }
 
+// WithAccessKey sets the AWS access key ID for authentication.
 func WithAccessKey(key string) Option {
 	return func(p *sssOption) error {
 		p.AccessKey = key
@@ -77,6 +114,7 @@ func WithAccessKey(key string) Option {
 	}
 }
 
+// WithSecretKey sets the AWS secret access key for authentication.
 func WithSecretKey(key string) Option {
 	return func(p *sssOption) error {
 		p.SecretKey = key
@@ -84,6 +122,7 @@ func WithSecretKey(key string) Option {
 	}
 }
 
+// WithBucket sets the S3 bucket name.
 func WithBucket(bucket string) Option {
 	return func(p *sssOption) error {
 		p.Bucket = bucket
@@ -91,6 +130,7 @@ func WithBucket(bucket string) Option {
 	}
 }
 
+// WithRegion sets the AWS region (e.g., "us-west-2").
 func WithRegion(region string) Option {
 	return func(p *sssOption) error {
 		p.Region = region
@@ -98,6 +138,8 @@ func WithRegion(region string) Option {
 	}
 }
 
+// WithRegionEndpoint sets a custom S3 endpoint URL.
+// Use this for S3-compatible services like MinIO.
 func WithRegionEndpoint(endpoint string) Option {
 	return func(p *sssOption) error {
 		p.RegionEndpoint = endpoint
@@ -105,6 +147,8 @@ func WithRegionEndpoint(endpoint string) Option {
 	}
 }
 
+// WithSignEndpoint sets a custom endpoint for generating presigned URLs.
+// The optional methods parameter specifies which HTTP methods to use this endpoint for.
 func WithSignEndpoint(endpoint string, methods ...string) Option {
 	return func(p *sssOption) error {
 		p.SignEndpoint = endpoint
@@ -113,6 +157,8 @@ func WithSignEndpoint(endpoint string, methods ...string) Option {
 	}
 }
 
+// WithForcePathStyle enables path-style S3 addressing (bucket.name/key instead of bucket-name.s3.amazonaws.com/key).
+// Required for some S3-compatible services like MinIO.
 func WithForcePathStyle(enable bool) Option {
 	return func(p *sssOption) error {
 		p.ForcePathStyle = enable
@@ -120,6 +166,7 @@ func WithForcePathStyle(enable bool) Option {
 	}
 }
 
+// WithEncryption enables server-side encryption for uploaded objects.
 func WithEncryption(enable bool) Option {
 	return func(p *sssOption) error {
 		p.Encrypt = enable
@@ -127,6 +174,8 @@ func WithEncryption(enable bool) Option {
 	}
 }
 
+// WithKMSKeyID sets the AWS KMS key ID for server-side encryption.
+// When set, objects will be encrypted using AWS KMS instead of AES256.
 func WithKMSKeyID(id string) Option {
 	return func(p *sssOption) error {
 		p.KeyID = id
@@ -134,6 +183,8 @@ func WithKMSKeyID(id string) Option {
 	}
 }
 
+// WithSecure enables HTTPS for S3 connections.
+// Set to false for local development with MinIO.
 func WithSecure(enable bool) Option {
 	return func(p *sssOption) error {
 		p.Secure = enable
@@ -141,6 +192,8 @@ func WithSecure(enable bool) Option {
 	}
 }
 
+// WithChunkSize sets the chunk size in bytes for multipart uploads.
+// Default is 10MB (10485760 bytes).
 func WithChunkSize(size int) Option {
 	return func(p *sssOption) error {
 		p.ChunkSize = size
@@ -148,6 +201,8 @@ func WithChunkSize(size int) Option {
 	}
 }
 
+// WithRootDirectory sets a root directory prefix for all S3 operations.
+// All paths will be relative to this directory.
 func WithRootDirectory(dir string) Option {
 	return func(p *sssOption) error {
 		p.RootDirectory = dir
@@ -155,6 +210,8 @@ func WithRootDirectory(dir string) Option {
 	}
 }
 
+// WithStorageClass sets the S3 storage class for uploaded objects.
+// Common values: STANDARD, REDUCED_REDUNDANCY, STANDARD_IA, ONEZONE_IA, GLACIER, DEEP_ARCHIVE.
 func WithStorageClass(class string) Option {
 	return func(p *sssOption) error {
 		p.StorageClass = class
@@ -162,6 +219,7 @@ func WithStorageClass(class string) Option {
 	}
 }
 
+// WithUserAgent sets a custom user agent string for S3 requests.
 func WithUserAgent(ua string) Option {
 	return func(p *sssOption) error {
 		p.UserAgent = ua
@@ -169,6 +227,8 @@ func WithUserAgent(ua string) Option {
 	}
 }
 
+// WithObjectACL sets the access control list (ACL) for uploaded objects.
+// Common values: private, public-read, public-read-write, authenticated-read.
 func WithObjectACL(acl string) Option {
 	return func(p *sssOption) error {
 		p.ObjectACL = acl
@@ -176,6 +236,7 @@ func WithObjectACL(acl string) Option {
 	}
 }
 
+// WithSessionToken sets the AWS session token for temporary credentials.
 func WithSessionToken(token string) Option {
 	return func(p *sssOption) error {
 		p.SessionToken = token
@@ -183,6 +244,7 @@ func WithSessionToken(token string) Option {
 	}
 }
 
+// WithDualStack enables IPv4/IPv6 dual-stack endpoints.
 func WithDualStack(enable bool) Option {
 	return func(p *sssOption) error {
 		p.UseDualStack = enable
@@ -190,6 +252,7 @@ func WithDualStack(enable bool) Option {
 	}
 }
 
+// WithAccelerate enables S3 Transfer Acceleration for faster uploads/downloads.
 func WithAccelerate(enable bool) Option {
 	return func(p *sssOption) error {
 		p.Accelerate = enable
@@ -197,6 +260,8 @@ func WithAccelerate(enable bool) Option {
 	}
 }
 
+// WithLogLevel sets the AWS SDK log level for debugging.
+// Use aws.LogDebug to enable detailed logging.
 func WithLogLevel(level aws.LogLevelType) Option {
 	return func(p *sssOption) error {
 		p.LogLevel = level
@@ -204,6 +269,29 @@ func WithLogLevel(level aws.LogLevelType) Option {
 	}
 }
 
+// WithURL configures the SSS client from a URL string.
+// URL format: sss://[access_key]:[secret_key]@[bucket].[region]?[options]
+//
+// Example:
+//
+//	sss://AKIAIOSFODNN7EXAMPLE:wJalrXUt...@my-bucket.us-west-2
+//	sss://minioadmin:minioadmin@bucket.region?regionendpoint=http://localhost:9000&forcepathstyle=true&secure=false
+//
+// Supported query parameters:
+//   - regionendpoint: Custom S3 endpoint URL
+//   - forcepathstyle: Use path-style addressing (true/false)
+//   - secure: Use HTTPS (true/false)
+//   - chunksize: Chunk size for multipart uploads in bytes
+//   - encrypt: Enable server-side encryption (true/false)
+//   - keyid: KMS key ID for encryption
+//   - storageclass: S3 storage class
+//   - objectacl: Object ACL
+//   - sessiontoken: AWS session token
+//   - usedualstack: Use dual-stack endpoints (true/false)
+//   - accelerate: Use S3 Transfer Acceleration (true/false)
+//   - signendpoint: Endpoint for presigned URLs
+//   - signendpointmethods: Comma-separated HTTP methods for presigned URLs
+//   - loglevel: AWS SDK log level (debug)
 func WithURL(uri string) Option {
 	return func(p *sssOption) error {
 		u, err := url.Parse(uri)
@@ -315,6 +403,8 @@ func WithURL(uri string) Option {
 	}
 }
 
+// SSS is the main client for interacting with S3 storage.
+// It provides methods for uploading, downloading, listing, and managing S3 objects.
 type SSS struct {
 	s3            *s3.S3
 	signS3        *s3.S3
@@ -330,6 +420,22 @@ type SSS struct {
 	pool          *sync.Pool
 }
 
+// NewSSS creates a new SSS client with the provided options.
+//
+// Example:
+//
+//	s, err := sss.NewSSS(
+//		sss.WithAccessKey("YOUR_ACCESS_KEY"),
+//		sss.WithSecretKey("YOUR_SECRET_KEY"),
+//		sss.WithBucket("my-bucket"),
+//		sss.WithRegion("us-west-2"),
+//	)
+//
+// For MinIO or other S3-compatible services:
+//
+//	s, err := sss.NewSSS(
+//		sss.WithURL("sss://minioadmin:minioadmin@bucket.region?regionendpoint=http://localhost:9000&forcepathstyle=true&secure=false"),
+//	)
 func NewSSS(opts ...Option) (*SSS, error) {
 	params := sssOption{
 		StorageClass: s3.StorageClassStandard,
@@ -474,10 +580,12 @@ func (s *SSS) getBucket() *string {
 	return aws.String(s.bucket)
 }
 
+// ChunkSize returns the configured chunk size for multipart uploads.
 func (s *SSS) ChunkSize() int {
 	return s.chunkSize
 }
 
+// S3 returns the underlying AWS S3 client for advanced operations.
 func (s *SSS) S3() *s3.S3 {
 	return s.s3
 }
