@@ -15,10 +15,11 @@ type FileInfo interface {
 }
 
 type FileInfoExpansion struct {
-	ContentType  *string
-	AcceptRanges *string
-	ETag         *string
-	Expires      *string
+	ContentType        *string
+	ContentDisposition *string
+	AcceptRanges       *string
+	ETag               *string
+	Expires            *string
 }
 
 type fileInfo struct {

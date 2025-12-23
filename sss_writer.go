@@ -28,8 +28,9 @@ func (s *SSS) SignPut(path string, expires time.Duration) (string, error) {
 }
 
 type writerOption struct {
-	SHA256      string
-	ContentType string
+	SHA256             string
+	ContentType        string
+	ContentDisposition string
 }
 
 type WriterOptions func(*writerOption)
@@ -80,6 +81,9 @@ func (s *SSS) PutContent(ctx context.Context, path string, contents []byte, opts
 	if o.ContentType != "" {
 		putObjectInput.ContentType = aws.String(o.ContentType)
 	}
+	if o.ContentDisposition != "" {
+		putObjectInput.ContentDisposition = aws.String(o.ContentDisposition)
+	}
 
 	_, err := s.s3.PutObjectWithContext(ctx, putObjectInput)
 	return parseError(path, err)
@@ -104,6 +108,9 @@ func (s *SSS) Writer(ctx context.Context, path string, opts ...WriterOptions) (F
 	}
 	if o.ContentType != "" {
 		createMultipartUploadInput.ContentType = aws.String(o.ContentType)
+	}
+	if o.ContentDisposition != "" {
+		createMultipartUploadInput.ContentDisposition = aws.String(o.ContentDisposition)
 	}
 
 	resp, err := s.s3.CreateMultipartUploadWithContext(ctx, createMultipartUploadInput)
