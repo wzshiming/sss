@@ -59,6 +59,13 @@ func WithContentType(contentType string) WriterOptions {
 	}
 }
 
+// WithContentDisposition sets the content disposition for the object being written
+func WithContentDisposition(contentDisposition string) WriterOptions {
+	return func(o *writerOption) {
+		o.ContentDisposition = contentDisposition
+	}
+}
+
 func (s *SSS) PutContent(ctx context.Context, path string, contents []byte, opts ...WriterOptions) error {
 	putObjectInput := &s3.PutObjectInput{
 		Bucket:               s.getBucket(),
@@ -90,34 +97,16 @@ func (s *SSS) PutContent(ctx context.Context, path string, contents []byte, opts
 }
 
 func (s *SSS) Writer(ctx context.Context, path string, opts ...WriterOptions) (FileWriter, error) {
-	key := s.s3Path(path)
-
 	var o writerOption
 	for _, opt := range opts {
 		opt(&o)
 	}
 
-	createMultipartUploadInput := &s3.CreateMultipartUploadInput{
-		Bucket:               s.getBucket(),
-		Key:                  aws.String(key),
-		ContentType:          s.getContentType(),
-		ACL:                  s.getACL(),
-		ServerSideEncryption: s.getEncryptionMode(),
-		SSEKMSKeyId:          s.getSSEKMSKeyID(),
-		StorageClass:         s.getStorageClass(),
-	}
-	if o.ContentType != "" {
-		createMultipartUploadInput.ContentType = aws.String(o.ContentType)
-	}
-	if o.ContentDisposition != "" {
-		createMultipartUploadInput.ContentDisposition = aws.String(o.ContentDisposition)
-	}
-
-	resp, err := s.s3.CreateMultipartUploadWithContext(ctx, createMultipartUploadInput)
+	mp, err := s.newMultipart(ctx, path, o)
 	if err != nil {
 		return nil, err
 	}
-	return s.newWriter(ctx, key, *resp.UploadId, nil, o), nil
+	return s.newWriter(ctx, mp.Key(), mp.UploadID(), nil, o), nil
 }
 
 func (s *SSS) WriterWithAppend(ctx context.Context, path string, opts ...WriterOptions) (FileWriter, error) {
