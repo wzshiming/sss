@@ -323,9 +323,19 @@ func (s *SSS) GetMultipartByUploadID(ctx context.Context, path, uploadID string)
 	return mps, nil
 }
 
-func (s *SSS) NewMultipart(ctx context.Context, path string) (*Multipart, error) {
+func (s *SSS) NewMultipart(ctx context.Context, path string, opts ...WriterOptions) (*Multipart, error) {
+	var o writerOption
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	return s.newMultipart(ctx, path, o)
+}
+
+func (s *SSS) newMultipart(ctx context.Context, path string, o writerOption) (*Multipart, error) {
 	key := s.s3Path(path)
-	resp, err := s.s3.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
+
+	createMultipartUploadInput := &s3.CreateMultipartUploadInput{
 		Bucket:               s.getBucket(),
 		Key:                  aws.String(key),
 		ContentType:          s.getContentType(),
@@ -333,7 +343,15 @@ func (s *SSS) NewMultipart(ctx context.Context, path string) (*Multipart, error)
 		ServerSideEncryption: s.getEncryptionMode(),
 		SSEKMSKeyId:          s.getSSEKMSKeyID(),
 		StorageClass:         s.getStorageClass(),
-	})
+	}
+	if o.ContentType != "" {
+		createMultipartUploadInput.ContentType = aws.String(o.ContentType)
+	}
+	if o.ContentDisposition != "" {
+		createMultipartUploadInput.ContentDisposition = aws.String(o.ContentDisposition)
+	}
+
+	resp, err := s.s3.CreateMultipartUploadWithContext(ctx, createMultipartUploadInput)
 	if err != nil {
 		return nil, err
 	}
